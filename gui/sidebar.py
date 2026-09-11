@@ -3,7 +3,7 @@ import os
 import streamlit as st
 
 from common.config_manager import normalize_config_id
-from gui.config_store import get_config_summary, get_selected_config_id, persist_selected_config_id, save_config
+from gui.config_store import get_config_summary, get_selected_config_id, persist_selected_config_id, save_config, get_structure_config_ids, load_config
 from common.config_manager import get_available_config_ids
 from gui.training_service import start_training, stop_training
 
@@ -43,7 +43,7 @@ def render_config_selector() -> str:
     with st.sidebar:
         st.markdown("## 配置管理")
         current_config_id = get_selected_config_id(st.session_state)
-        available_ids = get_available_config_ids()
+        available_ids = get_structure_config_ids()
         if current_config_id not in available_ids:
             available_ids.append(current_config_id)
             available_ids = sorted(set(available_ids), key=str)
@@ -78,6 +78,11 @@ def render_config_selector() -> str:
                 st.warning("请先输入新的配置编号。")
             else:
                 normalized_new_id = normalize_config_id(new_config_id)
+                if normalized_new_id not in get_available_config_ids():
+                    save_config(load_config(current_config_id),normalized_new_id)
+                elif normalized_new_id not in get_structure_config_ids():
+                    st.error('该编号属于其他项目，请使用新的编号创建结构约束配置。')
+                    return current_config_id
                 persist_selected_config_id(normalized_new_id)
                 st.session_state.selected_config_id = normalized_new_id
                 st.session_state.force_refresh_canvas = True

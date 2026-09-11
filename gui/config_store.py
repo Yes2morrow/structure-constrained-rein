@@ -1,6 +1,7 @@
 import ast
 import copy
 import tkinter as tk
+from pathlib import Path
 from tkinter import filedialog
 
 import yaml
@@ -32,13 +33,27 @@ def load_persisted_config_id() -> str:
     """Load the last selected config id from disk."""
     try:
         if SELECTED_CONFIG_FILE.exists():
-            return normalize_config_id(SELECTED_CONFIG_FILE.read_text(encoding="utf-8").strip())
+            selected = normalize_config_id(SELECTED_CONFIG_FILE.read_text(encoding="utf-8").strip())
+            return selected if selected in get_structure_config_ids() else 'retrofit'
         migrated = PROJECT_ROOT / 'config' / '.selected_config_id'
         if migrated.exists():
-            return normalize_config_id(migrated.read_text(encoding='utf-8').strip())
+            selected = normalize_config_id(migrated.read_text(encoding='utf-8').strip())
+            return selected if selected in get_structure_config_ids() else 'retrofit'
     except Exception:
         pass
-    return DEFAULT_CONFIG_ID
+    return 'retrofit'
+
+
+def get_structure_config_ids():
+    """This workbench is the structural adaptive-reuse project."""
+    result=[]
+    for identifier in get_available_config_ids():
+        try:
+            data=yaml.safe_load(Path(get_config_path(identifier,ensure_exists=False)).read_text(encoding='utf-8')) or {}
+            if data.get('ProjectType')=='adaptive_reuse': result.append(identifier)
+        except (OSError,ValueError,yaml.YAMLError):
+            continue
+    return result
 
 
 def persist_selected_config_id(config_id: str) -> None:

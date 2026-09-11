@@ -9,13 +9,13 @@ from gui import coordinate_editor as coords
 
 
 class ReferenceFrontendTest(unittest.TestCase):
-    def test_original_selection_takes_precedence(self):
+    def test_legacy_selection_does_not_switch_structural_project(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder); (root/'config').mkdir()
             (root/'.selected_config_id').write_text('1')
             (root/'config/.selected_config_id').write_text('retrofit')
             with patch.object(config_store,'PROJECT_ROOT',root),patch.object(config_store,'SELECTED_CONFIG_FILE',root/'.selected_config_id'):
-                self.assertEqual(config_store.load_persisted_config_id(),'1')
+                self.assertEqual(config_store.load_persisted_config_id(),'retrofit')
                 config_store.persist_selected_config_id('b')
                 self.assertEqual((root/'.selected_config_id').read_text(),'b')
 

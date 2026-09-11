@@ -2,7 +2,7 @@ import os
 
 import streamlit as st
 
-from gui.config_store import load_persisted_config_id
+from gui.config_store import load_persisted_config_id, get_structure_config_ids
 from common.project_paths import PID_FILE, STOP_REQUEST_FILE
 
 
@@ -20,8 +20,9 @@ def init_session_state(is_process_running) -> None:
     if "force_refresh_canvas" not in st.session_state:
         st.session_state.force_refresh_canvas = False
 
-    if "selected_config_id" not in st.session_state:
+    if st.session_state.get('selected_config_id') not in get_structure_config_ids():
         st.session_state.selected_config_id = load_persisted_config_id()
+        st.session_state.pop('config_selector',None)
 
     if "monitor_log_cleared_line_count" not in st.session_state:
         st.session_state.monitor_log_cleared_line_count = 0
