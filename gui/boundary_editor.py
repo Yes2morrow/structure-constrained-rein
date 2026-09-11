@@ -34,10 +34,20 @@ def save_boundary(config,config_id,points):
 
 
 def render_boundary_editor(config,config_id):
+    from gui.coordinate_editor import coordinate_editor
+    groups=[dict(name='建筑边界',points=config['ExistingBuilding']['boundary'],color='#2563eb',closed=True,min_points=3)]
+    edited=coordinate_editor('建筑边界坐标交互编辑',groups,key=f'{config_id}_reference_boundary')
+    if st.button('保存建筑边界并应用到原始平面',key=f'{config_id}_save_reference_boundary'):
+        try:
+            save_boundary(config,config_id,edited['建筑边界'])
+            st.rerun()
+        except (ValueError,TypeError) as exc:
+            st.error(f'建筑边界未保存：{exc}')
     revision=st.session_state.get(f'{config_id}_ar_canvas_revision',0)
-    st.caption('建筑边界：按顺序输入 [x, y] 顶点，单位米；可增删顶点。也可在下方“调整建筑边界”模式拖动橙色顶点。修改只改变边界，不移动房间或墙柱。')
-    text=st.text_area('建筑边界坐标',value=yaml.safe_dump(config['ExistingBuilding']['boundary'],default_flow_style=True).strip(),
-                      key=f'{config_id}_boundary_vertices_{revision}')
+    with st.expander('建筑边界 YAML（兼容已有坐标输入）',expanded=False):
+        st.caption('有效 YAML 修改自动保存；坐标画布的修改通过上方保存按钮应用。只改变边界，不移动房间或墙柱。')
+        text=st.text_area('建筑边界坐标',value=yaml.safe_dump(config['ExistingBuilding']['boundary'],default_flow_style=True).strip(),
+                          key=f'{config_id}_boundary_vertices_{revision}')
     try:
         points=validate_boundary(yaml.safe_load(text))
         if points!=config['ExistingBuilding']['boundary']:

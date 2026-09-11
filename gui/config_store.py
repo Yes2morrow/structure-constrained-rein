@@ -9,7 +9,7 @@ from common.config_manager import DEFAULT_CONFIG_ID, PROJECT_ROOT, get_available
 from core.envs.loads import CompatibleSafeLoader as ConfigSafeLoader
 
 
-SELECTED_CONFIG_FILE = PROJECT_ROOT / "config" / ".selected_config_id"
+SELECTED_CONFIG_FILE = PROJECT_ROOT / ".selected_config_id"
 
 
 class FlowList(list):
@@ -33,6 +33,9 @@ def load_persisted_config_id() -> str:
     try:
         if SELECTED_CONFIG_FILE.exists():
             return normalize_config_id(SELECTED_CONFIG_FILE.read_text(encoding="utf-8").strip())
+        migrated = PROJECT_ROOT / 'config' / '.selected_config_id'
+        if migrated.exists():
+            return normalize_config_id(migrated.read_text(encoding='utf-8').strip())
     except Exception:
         pass
     return DEFAULT_CONFIG_ID

@@ -316,3 +316,10 @@ PNG/SVG/JSON 直接放在 results2/seed_experimental/<运行名>/，不再建立
 ### 启动兼容与建筑边界双向编辑（2026-09-12 完成）
 恢复根目录 main.py，start_gui.bat 改回该入口；gui/main.py 保留兼容。真实本地服务健康检查 HTTP 200、根入口 AppTest 通过。建筑边界坐标移入二维标注的建筑边界/柱墙精确输入子区；有效输入自动保存，下方调整建筑边界模式以橙色顶点拖动编辑。使用同一 viewport 换算，Fabric 初始两位小数不损失原坐标；缺点/自交/非有限/退化拒绝覆盖，其他房间/结构/训练配置不移动。新增画布→YAML→输入框整体验证。82 项全量回归通过，新增整体验证所在 4 项边界检查通过（合计 83 项不同测试）；原柱墙/空画布/结构同步独立检查通过。
 checks 已分类：test_*.py 留在根部；smoke/ 为独立验证，benchmarks/ 为基准生成器，evidence/ 为历史数据，人工评估移到 gui/manual_env.py。相关引用已迁移；前文 checks/ 下旧基准文件地址请改为 checks/evidence/，独立 check_*.py 改为 checks/smoke/。详见 checks/README.md。
+
+### 原前端恢复与参考画布（2026-09-12）
+- 修改前先建立独立 Git 仓库并提交 4bfc896（全部项目代码/配置/检查点文档；results2 和环境不纳入 Git，文件保留）。
+- 对照 CUHK_Rein_code_backup_20260910：原 gui/config_page.py 完全一致，主 app 三页框架仍保留。发现根 .selected_config_id=1、迁移后 config/.selected_config_id=retrofit，导致启动展示不同页面。恢复根配置记忆优先，仅根文件缺失时兼容迁移文件。
+- 新增 gui/coordinate_editor.py，来源 community_site_marl/ui/coordinate_editor.py：左画布/右坐标表、坐标轴与指北针、拖点、应用数值、恢复配置。适配为父页面重跑和显式保存，接入改造边界区；已有柱墙/训练/原始平面保留，YAML 作为折叠兼容入口。
+- 9 项边界/种子 UI 回归、3 项新增参考画布与原配置选择回归通过；main.py AppTest 验证启动选中 1，原参数配置/训练监控/布局预览三页保留。
+- 本次未更改训练算法或模型数据。需重开页面会话使原配置记忆生效；已有会话可手动选择编号 1。
