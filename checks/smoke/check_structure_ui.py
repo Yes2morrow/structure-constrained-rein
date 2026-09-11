@@ -36,7 +36,7 @@ render_structure_editor(load_config('retrofit'), 'retrofit')
         assert state['Training'] == before['Training']
         app.run()
         assert not app.exception
-        assert app.dataframe[0].value.iloc[0]['id'] == 'c1'
+        assert next(d.value for d in app.dataframe if 'cx' in d.value.columns).iloc[0]['id'] == 'c1'
     print('PASS: form submission saves exact column/wall parameters; reload retains data; training unchanged')
 
 

@@ -1,6 +1,5 @@
 """Building boundary parameters and draggable Fabric vertex handles."""
 import math
-import yaml
 import streamlit as st
 from shapely.geometry import Polygon
 from gui.structure_canvas import viewport
@@ -34,26 +33,22 @@ def save_boundary(config,config_id,points):
 
 
 def render_boundary_editor(config,config_id):
-    from gui.coordinate_editor import coordinate_editor
-    groups=[dict(name='建筑边界',points=config['ExistingBuilding']['boundary'],color='#2563eb',closed=True,min_points=3)]
-    edited=coordinate_editor('建筑边界坐标交互编辑',groups,key=f'{config_id}_reference_boundary')
-    if st.button('保存建筑边界并应用到原始平面',key=f'{config_id}_save_reference_boundary'):
-        try:
-            save_boundary(config,config_id,edited['建筑边界'])
-            st.rerun()
-        except (ValueError,TypeError) as exc:
-            st.error(f'建筑边界未保存：{exc}')
+    import pandas as pd
     revision=st.session_state.get(f'{config_id}_ar_canvas_revision',0)
-    with st.expander('建筑边界 YAML（兼容已有坐标输入）',expanded=False):
-        st.caption('有效 YAML 修改自动保存；坐标画布的修改通过上方保存按钮应用。只改变边界，不移动房间或墙柱。')
-        text=st.text_area('建筑边界坐标',value=yaml.safe_dump(config['ExistingBuilding']['boundary'],default_flow_style=True).strip(),
-                          key=f'{config_id}_boundary_vertices_{revision}')
+    st.markdown('##### 建筑边界坐标')
+    st.caption('按轮廓顺序排列顶点，单位米。可增删行；画布选择“调整建筑边界”拖动橙色控制点。有效修改自动同步保存。')
+    rows=[dict(vertex=i+1,x=p[0],y=p[1]) for i,p in enumerate(config['ExistingBuilding']['boundary'])]
+    frame=st.data_editor(pd.DataFrame(rows),num_rows='dynamic',hide_index=True,
+        disabled=['vertex'],use_container_width=True,key=f'{config_id}_boundary_table_{revision}',
+        column_config={'vertex':st.column_config.NumberColumn('顶点序号'),
+                       'x':st.column_config.NumberColumn('X（m）',format='%.4f',required=True),
+                       'y':st.column_config.NumberColumn('Y（m）',format='%.4f',required=True)})
     try:
-        points=validate_boundary(yaml.safe_load(text))
+        points=validate_boundary([[row['x'],row['y']] for row in frame.to_dict('records')])
         if points!=config['ExistingBuilding']['boundary']:
             save_boundary(config,config_id,points)
             st.rerun()
-    except (ValueError,TypeError,yaml.YAMLError) as exc:
+    except (ValueError,TypeError,KeyError) as exc:
         st.error(f'建筑边界未保存：{exc}')
         return False
     return True

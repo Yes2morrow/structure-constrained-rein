@@ -236,14 +236,54 @@ def _load_plan_image(config: dict, width: int, height: int):
     return _create_tangwu_plan_image(config, width, height)
 
 
+def _render_residential_inputs(config, config_id):
+    st.markdown("### 传统堂屋住宅输入")
+    scenario_col1, scenario_col2 = st.columns(2)
+    with scenario_col1:
+        config["BuildingTypology"] = st.text_input(
+            "既有建筑类型", value=config.get("BuildingTypology", "traditional_tangwu"),
+            help="当前研究场景固定为传统堂屋住宅。", key=f"{config_id}_ar_typology",
+        )
+    with scenario_col2:
+        config["ConversionGoal"] = st.text_input(
+            "转换目标", value=config.get("ConversionGoal", "modern_residence"),
+            help="目标是现代住宅功能布局，而不是公共服务或社区中心。", key=f"{config_id}_ar_goal",
+        )
+    with st.expander("坐标数据表（精确编辑）", expanded=False):
+        st.markdown("#### 原始空间（改造前状态）")
+        original_df = st.data_editor(
+            pd.DataFrame(_rect_records(config["ExistingBuilding"].get("original_spaces", []))),
+            num_rows="dynamic", use_container_width=True, key=f"{config_id}_ar_originals_{REFERENCE_PLAN_UI_VERSION}",
+        )
+        try:
+            originals = _records_to_rects(original_df)
+            for item in originals:
+                x1, y1, x2, y2 = item["rect"]
+                if not all(math.isfinite(v) for v in item["rect"]) or x2 <= x1 or y2 <= y1:
+                    raise ValueError("原始空间需满足 x2 > x1、y2 > y1，坐标必须为有限数值。")
+            config["ExistingBuilding"]["original_spaces"] = originals
+        except (TypeError, ValueError, KeyError) as exc:
+            st.error(f"原始空间坐标无效：{exc}")
+            return False
+
+    if st.button("保存住宅输入并应用到二维标注", type="primary", use_container_width=True):
+        saved = load_config(config_id)
+        for field in ("BuildingTypology", "ConversionGoal"):
+            saved[field] = config[field]
+        saved["ExistingBuilding"]["original_spaces"] = config["ExistingBuilding"]["original_spaces"]
+        save_config(saved, config_id)
+        st.session_state[f"{config_id}_ar_canvas_revision"] = st.session_state.get(f"{config_id}_ar_canvas_revision", 0) + 1
+        st.success("住宅类型、转换目标、建筑边界及坐标表已保存，并应用到下方二维标注。")
+
+    return True
+
+
 def _render_plan_constraint_editor(config: dict, config_id: str) -> None:
     building = config["ExistingBuilding"]
     environment = config["AdaptiveReuseEnvironment"]
     boundary = building["boundary"]
     st.markdown("### 二维原始平面与前期约束标注")
     st.caption('参数表与画布共用一份构件数据。有效修改自动保存到 YAML 并双向同步；新增表格行请先补全必填数据。')
-    with st.expander('建筑边界、柱与墙体精确输入', expanded=True):
-        editor_valid = render_structure_editor(config, config_id)
 
     upload_col, type_col = st.columns([1.35, 1])
     with upload_col:
@@ -296,80 +336,86 @@ def _render_plan_constraint_editor(config: dict, config_id: str) -> None:
             unsafe_allow_html=True,
         )
 
-    if not editor_valid:
-        st.info('请先补全上方参数行，画布编辑将在数据有效后恢复。')
-        return
-    if st_canvas is None:
-        st.warning("当前环境未安装 streamlit-drawable-canvas，暂时只能使用下方坐标表格。")
-        return
+    canvas_column, parameters_column = st.columns([1.05, 1], gap="medium")
+    with parameters_column:
+        inputs_valid = _render_residential_inputs(config, config_id)
+        editor_valid = render_structure_editor(config, config_id) and inputs_valid
 
-    xs = [float(point[0]) for point in boundary]
-    ys = [float(point[1]) for point in boundary]
-    aspect = max((max(xs) - min(xs)) / max(max(ys) - min(ys), 1e-9), 0.35)
-    canvas_width = 900
-    canvas_height = max(360, min(680, int(canvas_width / aspect)))
-    plan_objects = _plan_objects(config, canvas_width, canvas_height)
-    plan_signature = hashlib.sha256(json.dumps(building, sort_keys=True).encode()).hexdigest()[:12]
-    _, fill_color, stroke_color = CONSTRAINT_STYLES[selected_type]
-    revision = st.session_state.get(f"{config_id}_ar_canvas_revision", 0)
-    canvas_key = f"{config_id}_ar_constraint_canvas_{REFERENCE_PLAN_UI_VERSION}_{plan_signature}_{selected_type}_{operation_mode}_{revision}"
-    editing_boundary = operation_mode == "调整建筑边界"
-    structural_objects = canvas_objects(building.get("fixed_objects", []), boundary, canvas_width, canvas_height, CONSTRAINT_STYLES)
-    if editing_boundary:
-        for obj in structural_objects:
-            obj.update(selectable=False,evented=False)
-    handles = boundary_handles(boundary,canvas_width,canvas_height) if editing_boundary else []
-    canvas = st_canvas(
-        fill_color=fill_color,
-        stroke_width=2,
-        stroke_color=stroke_color,
-        background_color="#ffffff",
-        initial_drawing={
-            "version": "4.4.0",
-            "objects": plan_objects + structural_objects + handles,
-        },
-        update_streamlit=True,
-        height=canvas_height,
-        width=canvas_width,
-        drawing_mode=("line" if selected_type in ('shear_wall','load_bearing_wall') else "rect") if operation_mode == "绘制约束" else "transform",
-        display_toolbar=True,
-        key=canvas_key,
-    )
-    st.caption('松开鼠标后自动同步参数表并保存。墙的厚度缩放保持左右厚度比例；旋转保持墙属性与方向。尺寸不吸附动作网格。核心筒由剪力墙重新识别。')
-    ready_key = f'{config_id}_structure_canvas_ready'
-    if canvas.json_data is not None and st.session_state.get(ready_key) != canvas_key:
-        raw = canvas.json_data.get('objects', [])
-        expected = set(identity_colors(building.get('fixed_objects', [])).values())
+    with canvas_column:
+        if not editor_valid:
+            st.info('请先补全右侧参数行，画布编辑将在数据有效后恢复。')
+            return
+        if st_canvas is None:
+            st.warning("当前环境未安装 streamlit-drawable-canvas，暂时只能使用下方坐标表格。")
+            return
+
+        xs = [float(point[0]) for point in boundary]
+        ys = [float(point[1]) for point in boundary]
+        aspect = max((max(xs) - min(xs)) / max(max(ys) - min(ys), 1e-9), 0.35)
+        canvas_width = 760
+        canvas_height = max(360, min(680, int(canvas_width / aspect)))
+        plan_objects = _plan_objects(config, canvas_width, canvas_height)
+        plan_signature = hashlib.sha256(json.dumps(building, sort_keys=True).encode()).hexdigest()[:12]
+        _, fill_color, stroke_color = CONSTRAINT_STYLES[selected_type]
+        revision = st.session_state.get(f"{config_id}_ar_canvas_revision", 0)
+        canvas_key = f"{config_id}_ar_constraint_canvas_{REFERENCE_PLAN_UI_VERSION}_{plan_signature}_{selected_type}_{operation_mode}_{revision}"
+        editing_boundary = operation_mode == "调整建筑边界"
+        structural_objects = canvas_objects(building.get("fixed_objects", []), boundary, canvas_width, canvas_height, CONSTRAINT_STYLES)
         if editing_boundary:
-            expected.update(h['stroke'] for h in handles)
-        observed = {o.get('stroke') for o in raw}
-        # Fabric emits an empty frame before asynchronous initialDrawing hydration.
-        # It must never be interpreted as a user deleting saved structures.
-        if any(o.get('type') == 'image' for o in raw) and expected <= observed:
-            st.session_state[ready_key] = canvas_key
-    if canvas.json_data is not None and editor_valid and st.session_state.get(ready_key) == canvas_key:
-        try:
+            for obj in structural_objects:
+                obj.update(selectable=False,evented=False)
+        handles = boundary_handles(boundary,canvas_width,canvas_height) if editing_boundary else []
+        canvas = st_canvas(
+            fill_color=fill_color,
+            stroke_width=2,
+            stroke_color=stroke_color,
+            background_color="#ffffff",
+            initial_drawing={
+                "version": "4.4.0",
+                "objects": plan_objects + structural_objects + handles,
+            },
+            update_streamlit=True,
+            height=canvas_height,
+            width=canvas_width,
+            drawing_mode=("line" if selected_type in ('shear_wall','load_bearing_wall') else "rect") if operation_mode == "绘制约束" else "transform",
+            display_toolbar=True,
+            key=canvas_key,
+        )
+        st.caption('松开鼠标后自动同步参数表并保存。墙的厚度缩放保持左右厚度比例；旋转保持墙属性与方向。尺寸不吸附动作网格。核心筒由剪力墙重新识别。')
+        ready_key = f'{config_id}_structure_canvas_ready'
+        if canvas.json_data is not None and st.session_state.get(ready_key) != canvas_key:
+            raw = canvas.json_data.get('objects', [])
+            expected = set(identity_colors(building.get('fixed_objects', [])).values())
             if editing_boundary:
-                points = parse_boundary_handles(canvas.json_data.get('objects', []), boundary, canvas_width, canvas_height)
-                if points != boundary:
-                    save_boundary(config, config_id, points)
-                    st.rerun()
-            else:
-                parsed = parse_canvas(canvas.json_data.get('objects', []), building.get('fixed_objects', []),
-                                      boundary, canvas_width, canvas_height, selected_type, wall_left, wall_right)
-                if signature(parsed) != signature(building.get('fixed_objects', [])):
-                    save_structures(config, config_id, parsed)
-                    st.rerun()
-        except (ValueError, TypeError, KeyError) as exc:
-            st.error(f'画布修改未同步：{exc}')
+                expected.update(h['stroke'] for h in handles)
+            observed = {o.get('stroke') for o in raw}
+            # Fabric emits an empty frame before asynchronous initialDrawing hydration.
+            # It must never be interpreted as a user deleting saved structures.
+            if any(o.get('type') == 'image' for o in raw) and expected <= observed:
+                st.session_state[ready_key] = canvas_key
+        if canvas.json_data is not None and editor_valid and st.session_state.get(ready_key) == canvas_key:
+            try:
+                if editing_boundary:
+                    points = parse_boundary_handles(canvas.json_data.get('objects', []), boundary, canvas_width, canvas_height)
+                    if points != boundary:
+                        save_boundary(config, config_id, points)
+                        st.rerun()
+                else:
+                    parsed = parse_canvas(canvas.json_data.get('objects', []), building.get('fixed_objects', []),
+                                          boundary, canvas_width, canvas_height, selected_type, wall_left, wall_right)
+                    if signature(parsed) != signature(building.get('fixed_objects', [])):
+                        save_structures(config, config_id, parsed)
+                        st.rerun()
+            except (ValueError, TypeError, KeyError) as exc:
+                st.error(f'画布修改未同步：{exc}')
 
-    save_col, clear_col = st.columns(2)
-    with save_col:
-        st.caption(f"已同步 {len(building.get('fixed_objects', []))} 个构件（含自动核心筒）")
-    with clear_col:
-        if st.button("清空全部约束并同步参数表", use_container_width=True, disabled=not editor_valid):
-            save_structures(config, config_id, [])
-            st.rerun()
+        save_col, clear_col = st.columns(2)
+        with save_col:
+            st.caption(f"已同步 {len(building.get('fixed_objects', []))} 个构件（含自动核心筒）")
+        with clear_col:
+            if st.button("清空全部约束并同步参数表", use_container_width=True, disabled=not editor_valid):
+                save_structures(config, config_id, [])
+                st.rerun()
 
 
 def render_adaptive_reuse_config_page(config: dict, config_id: str) -> None:
@@ -411,43 +457,6 @@ def render_adaptive_reuse_config_page(config: dict, config_id: str) -> None:
         environment["max_intervention_ratio"] = float(st.slider("终止允许的最大改造率", 0.0, 1.0, float(environment.get("max_intervention_ratio", 0.45)), 0.01, key=f"{config_id}_ar_intervention"))
         environment["success_patience"] = int(st.number_input("连续满足步数", 1, value=int(environment.get("success_patience", 8)), key=f"{config_id}_ar_patience"))
         environment["randomize_initial"] = st.checkbox("训练时随机扰动初始位置", value=bool(environment.get("randomize_initial", True)), key=f"{config_id}_ar_random")
-
-    st.markdown("### 传统堂屋住宅输入")
-    scenario_col1, scenario_col2 = st.columns(2)
-    with scenario_col1:
-        config["BuildingTypology"] = st.text_input(
-            "既有建筑类型", value=config.get("BuildingTypology", "traditional_tangwu"),
-            help="当前研究场景固定为传统堂屋住宅。", key=f"{config_id}_ar_typology",
-        )
-    with scenario_col2:
-        config["ConversionGoal"] = st.text_input(
-            "转换目标", value=config.get("ConversionGoal", "modern_residence"),
-            help="目标是现代住宅功能布局，而不是公共服务或社区中心。", key=f"{config_id}_ar_goal",
-        )
-    with st.expander("坐标数据表（精确编辑）", expanded=False):
-        st.markdown("#### 原始空间（改造前状态）")
-        original_df = st.data_editor(
-            pd.DataFrame(_rect_records(config["ExistingBuilding"].get("original_spaces", []))),
-            num_rows="dynamic", use_container_width=True, key=f"{config_id}_ar_originals_{REFERENCE_PLAN_UI_VERSION}",
-        )
-        try:
-            originals = _records_to_rects(original_df)
-            for item in originals:
-                x1, y1, x2, y2 = item["rect"]
-                if not all(math.isfinite(v) for v in item["rect"]) or x2 <= x1 or y2 <= y1:
-                    raise ValueError("原始空间需满足 x2 > x1、y2 > y1，坐标必须为有限数值。")
-            config["ExistingBuilding"]["original_spaces"] = originals
-        except (TypeError, ValueError, KeyError) as exc:
-            st.error(f"原始空间坐标无效：{exc}")
-            return
-
-    if st.button("保存住宅输入并应用到二维标注", type="primary", use_container_width=True):
-        saved = load_config(config_id)
-        for field in ("BuildingTypology", "ConversionGoal", "ExistingBuilding"):
-            saved[field] = config[field]
-        save_config(saved, config_id)
-        st.session_state[f"{config_id}_ar_canvas_revision"] = st.session_state.get(f"{config_id}_ar_canvas_revision", 0) + 1
-        st.success("住宅类型、转换目标、建筑边界及坐标表已保存，并应用到下方二维标注。")
 
     _render_plan_constraint_editor(config, config_id)
 

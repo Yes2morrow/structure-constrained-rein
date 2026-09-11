@@ -8,7 +8,7 @@ import shutil
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_ROOT = PROJECT_ROOT / "config"
 DEFAULT_CONFIG_NAME = "config.yaml"
-DEFAULT_CONFIG_ID = "a"
+DEFAULT_CONFIG_ID = "retrofit"
 LEGACY_CONFIG_NAMES = [
     "config a.yaml",
     "config b.yaml",

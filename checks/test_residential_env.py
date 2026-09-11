@@ -12,6 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = PROJECT_ROOT / "config" / "residential" / "config.yaml"
 
 
+@unittest.skipUnless(CONFIG_PATH.exists(), '旧住区配置已按用户要求移除')
 class ResidentialLayoutEnvTest(unittest.TestCase):
     def setUp(self):
         self.env, _ = make_residential_env(CONFIG_PATH)

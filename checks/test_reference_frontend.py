@@ -33,26 +33,6 @@ class ReferenceFrontendTest(unittest.TestCase):
         self.assertGreater(moved[0][0],0)
         self.assertEqual(moved[1:],groups[0]['points'][1:])
 
-    def test_reference_save_is_explicit_and_preserves_training(self):
-        import gui.boundary_editor as boundary
-        state=copy.deepcopy(config_store.load_config('retrofit'))
-        original=copy.deepcopy(state)
-        draft=[[0,0],[32,0],[32,20],[0,20]]
-        source="""
-from gui.boundary_editor import render_boundary_editor
-from gui.config_store import load_config
-render_boundary_editor(load_config('retrofit'),'retrofit')
-"""
-        loader=lambda _:copy.deepcopy(state)
-        with patch.object(config_store,'load_config',loader),patch.object(boundary,'load_config',loader),\
-             patch.object(boundary,'save_config',lambda c,i:state.update(copy.deepcopy(c))),\
-             patch.object(coords,'coordinate_editor',return_value={'建筑边界':draft}):
-            app=AppTest.from_string(source).run()
-            self.assertEqual(state,original)
-            next(b for b in app.button if b.label=='保存建筑边界并应用到原始平面').click().run()
-            self.assertFalse(app.exception)
-            self.assertEqual(state['ExistingBuilding']['boundary'],draft)
-            self.assertEqual(state['Training'],original['Training'])
 
 
 if __name__=='__main__': unittest.main()
