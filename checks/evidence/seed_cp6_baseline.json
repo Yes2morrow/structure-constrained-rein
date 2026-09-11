@@ -1,0 +1,141 @@
+{
+  "run": "J:\\man2\\structure constrained rein\\CUHK_Rein_2026.06_edit by MY\\results2\\seed_experimental\\cp6_adjacency_baseline_20260911",
+  "status": "finished",
+  "completed_episodes": 250,
+  "checkpoint_consistent": true,
+  "episode_log_contiguous": true,
+  "independently_revalidated": true,
+  "committed_precise_results": 1,
+  "geometry_valid": true,
+  "adjacent_satisfied": 3,
+  "adjacent_total": 4,
+  "unresolved_relations": [
+    {
+      "source": "second_bedroom",
+      "target": "bathroom",
+      "kind": "adjacent",
+      "shared_length": 0.0,
+      "distance": 7.450000000000001,
+      "satisfied": false
+    }
+  ],
+  "comparison": {
+    "areas": [
+      {
+        "id": "living",
+        "estimated_area": 36.0,
+        "precise_area": 35.99999999999999,
+        "error": 7.105427357601002e-15
+      },
+      {
+        "id": "master_bedroom",
+        "estimated_area": 36.0,
+        "precise_area": 36.0,
+        "error": 0.0
+      },
+      {
+        "id": "second_bedroom",
+        "estimated_area": 30.0,
+        "precise_area": 30.000000000000004,
+        "error": -3.552713678800501e-15
+      },
+      {
+        "id": "kitchen",
+        "estimated_area": 15.0,
+        "precise_area": 15.0,
+        "error": 0.0
+      },
+      {
+        "id": "bathroom",
+        "estimated_area": 8.0,
+        "precise_area": 8.0,
+        "error": 0.0
+      },
+      {
+        "id": "dining",
+        "estimated_area": 16.0,
+        "precise_area": 16.0,
+        "error": 0.0
+      }
+    ],
+    "relations": [
+      {
+        "source": "living",
+        "target": "dining",
+        "kind": "adjacent",
+        "estimated_score": 1.0,
+        "estimated_satisfied": true,
+        "precise_satisfied": true,
+        "shared_length": 3.049999999999997,
+        "distance": 0.0,
+        "false_positive": false,
+        "false_negative": false
+      },
+      {
+        "source": "dining",
+        "target": "kitchen",
+        "kind": "adjacent",
+        "estimated_score": 1.0,
+        "estimated_satisfied": true,
+        "precise_satisfied": true,
+        "shared_length": 4.5,
+        "distance": 0.0,
+        "false_positive": false,
+        "false_negative": false
+      },
+      {
+        "source": "master_bedroom",
+        "target": "bathroom",
+        "kind": "adjacent",
+        "estimated_score": 1.0,
+        "estimated_satisfied": true,
+        "precise_satisfied": true,
+        "shared_length": 3.0500000000000007,
+        "distance": 0.0,
+        "false_positive": false,
+        "false_negative": false
+      },
+      {
+        "source": "second_bedroom",
+        "target": "bathroom",
+        "kind": "adjacent",
+        "estimated_score": 0.0,
+        "estimated_satisfied": false,
+        "precise_satisfied": false,
+        "shared_length": 0.0,
+        "distance": 7.450000000000001,
+        "false_positive": false,
+        "false_negative": false
+      },
+      {
+        "source": "kitchen",
+        "target": "master_bedroom",
+        "kind": "separate",
+        "estimated_score": 1.0,
+        "estimated_satisfied": true,
+        "precise_satisfied": true,
+        "shared_length": 0.0,
+        "distance": 12.95,
+        "false_positive": false,
+        "false_negative": false
+      },
+      {
+        "source": "bathroom",
+        "target": "dining",
+        "kind": "separate",
+        "estimated_score": 1.0,
+        "estimated_satisfied": true,
+        "precise_satisfied": true,
+        "shared_length": 0.0,
+        "distance": 18.123258537029155,
+        "false_positive": false,
+        "false_negative": false
+      }
+    ],
+    "false_positives": 0,
+    "false_negatives": 0,
+    "unknown": 0,
+    "note": "代理接触及距离奖励均不是精确邻接或通行证明"
+  },
+  "precise_status": "unresolved"
+}

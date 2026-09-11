@@ -1,0 +1,20 @@
+__pycache__/
+*.pyc
+running.pid
+runtime/*
+!runtime/.gitkeep
+
+# Python 环境（应通过 requirements.txt 重建，不入库）
+.venv/
+.venv312/
+venv/
+
+# 运行日志与进程文件
+*.log
+*.err.log
+*.pid
+
+# macOS / Windows 系统文件
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,298 @@
+{
+  "examples": [
+    {
+      "title": "CP3: whole edge stops",
+      "polygon": [
+        [
+          4.0,
+          3.3306690738754696e-16
+        ],
+        [
+          4.0,
+          2.638196601125011
+        ],
+        [
+          0.5000000000000003,
+          2.638196601125011
+        ],
+        [
+          0.5000000000000003,
+          3.3306690738754696e-16
+        ],
+        [
+          4.0,
+          3.3306690738754696e-16
+        ]
+      ],
+      "validation": {
+        "estimated": false,
+        "geometry_valid": false,
+        "errors": [
+          "r:area_below_minimum"
+        ],
+        "rooms": {
+          "r": {
+            "area": 9.233688103937535,
+            "target_area": 10.5,
+            "area_error": -1.266311896062465,
+            "rectangularity": 1.0,
+            "aspect": 1.3266638272930413,
+            "aspect_in_range": true,
+            "shape": {
+              "reflex_count": 0,
+              "rectangularity": 1.0,
+              "notch_depth_ratio": 0.0,
+              "extra_perimeter": 0.0,
+              "min_segment_ratio": 0.8681995493343042,
+              "required_width": 2,
+              "width_method": "mitred_clearance_core"
+            }
+          }
+        },
+        "relations": [],
+        "relations_satisfied": true
+      }
+    },
+    {
+      "title": "CP4: A, capped by target area",
+      "polygon": [
+        [
+          4.0,
+          3.3306690738754696e-16
+        ],
+        [
+          0.5000000000000003,
+          3.3306690738754696e-16
+        ],
+        [
+          0.5000000000000003,
+          2.638196601125011
+        ],
+        [
+          1.3195611523949795,
+          3.0479771773225
+        ],
+        [
+          4.0,
+          3.0479771773225
+        ],
+        [
+          4.0,
+          3.3306690738754696e-16
+        ]
+      ],
+      "validation": {
+        "estimated": false,
+        "geometry_valid": true,
+        "errors": [],
+        "rooms": {
+          "r": {
+            "area": 10.5,
+            "target_area": 10.5,
+            "area_error": 0.0,
+            "rectangularity": 0.9842593383968035,
+            "aspect": 1.1483025614629372,
+            "aspect_in_range": true,
+            "shape": {
+              "reflex_count": 0,
+              "rectangularity": 0.9842593383968037,
+              "notch_depth_ratio": 0.0,
+              "extra_perimeter": 0.0,
+              "min_segment_ratio": 0.2827754625213528,
+              "required_width": 2,
+              "width_method": "mitred_clearance_core"
+            }
+          }
+        },
+        "relations": [],
+        "relations_satisfied": true
+      }
+    },
+    {
+      "title": "CP4: B, finite wall endpoint",
+      "polygon": [
+        [
+          4.0,
+          0.0
+        ],
+        [
+          0.5,
+          0.0
+        ],
+        [
+          0.5,
+          2.0
+        ],
+        [
+          0.5,
+          2.6381966011250104
+        ],
+        [
+          3.044721359549996,
+          3.9105572809000084
+        ],
+        [
+          4.0,
+          3.9105572809000084
+        ],
+        [
+          4.0,
+          2.0
+        ],
+        [
+          4.0,
+          0.0
+        ]
+      ],
+      "validation": {
+        "estimated": false,
+        "geometry_valid": true,
+        "errors": [],
+        "rooms": {
+          "r": {
+            "area": 12.068048783712534,
+            "target_area": 12.4,
+            "area_error": -0.33195121628746627,
+            "rectangularity": 0.8817193280979192,
+            "aspect": 1.1173020802571452,
+            "aspect_in_range": true,
+            "shape": {
+              "reflex_count": 0,
+              "rectangularity": 0.8817193280979192,
+              "notch_depth_ratio": 0.0,
+              "extra_perimeter": 0.0,
+              "min_segment_ratio": 0.27498660466835345,
+              "required_width": 2,
+              "width_method": "mitred_clearance_core"
+            }
+          }
+        },
+        "relations": [],
+        "relations_satisfied": true
+      }
+    },
+    {
+      "title": "CP4: controlled column recess",
+      "polygon": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          4.5
+        ],
+        [
+          4.0,
+          4.5
+        ],
+        [
+          4.0,
+          4.0
+        ],
+        [
+          6.0,
+          4.0
+        ],
+        [
+          6.0,
+          4.75
+        ],
+        [
+          10.0,
+          4.75
+        ],
+        [
+          10.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "validation": {
+        "estimated": false,
+        "geometry_valid": true,
+        "errors": [],
+        "rooms": {
+          "r": {
+            "area": 45.0,
+            "target_area": 45,
+            "area_error": 0.0,
+            "rectangularity": 0.9473684210526315,
+            "aspect": 2.1052631578947367,
+            "aspect_in_range": true,
+            "shape": {
+              "reflex_count": 2,
+              "rectangularity": 0.9473684210526315,
+              "notch_depth_ratio": 0.11170647350013824,
+              "extra_perimeter": 0.04254948408457726,
+              "min_segment_ratio": 0.07453559924999299,
+              "required_width": 0.670820393249937,
+              "width_method": "mitred_clearance_core"
+            }
+          }
+        },
+        "relations": [],
+        "relations_satisfied": true
+      }
+    }
+  ],
+  "events_A": [
+    {
+      "round": 1,
+      "accepted": {
+        "r": "slant_A_area_limited"
+      },
+      "conflict_rejected": [],
+      "validation_rollback": []
+    },
+    {
+      "round": 2,
+      "accepted": {},
+      "conflict_rejected": [],
+      "validation_rollback": []
+    }
+  ],
+  "events_B": [
+    {
+      "round": 1,
+      "accepted": {
+        "r": "slant_B"
+      },
+      "conflict_rejected": [],
+      "validation_rollback": []
+    },
+    {
+      "round": 2,
+      "accepted": {},
+      "conflict_rejected": [],
+      "validation_rollback": []
+    }
+  ],
+  "events_notch": [
+    {
+      "round": 1,
+      "accepted": {
+        "r": "split"
+      },
+      "conflict_rejected": [],
+      "validation_rollback": []
+    },
+    {
+      "round": 2,
+      "accepted": {
+        "r": "whole_segment_area_limited"
+      },
+      "conflict_rejected": [],
+      "validation_rollback": []
+    },
+    {
+      "round": 3,
+      "accepted": {},
+      "conflict_rejected": [],
+      "validation_rollback": []
+    }
+  ]
+}

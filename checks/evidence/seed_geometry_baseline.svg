@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-1.0 -20.0 32.0 21.0">
+<rect x="-10000" y="-10000" width="20000" height="20000" fill="white"/>
+<polygon points="0.0,-0.0 30.0,-0.0 30.0,-18.0 0.0,-18.0 0.0,-0.0" fill="#f2f2f2" stroke="#263238" stroke-width="0.04"/>
+<polygon points="5.775,-12.475 5.775,-15.09795081967213 2.7249999999999996,-15.09795081967213 2.7249999999999996,-12.475 5.775,-12.475" fill="#90caf9" stroke="#263238" stroke-width="0.04"/>
+<circle cx="4.25" cy="-14.0" r="0.1" fill="black"/>
+<text x="4.4" y="-14.0" font-size="0.3">bathroom: 8.00 m²</text>
+<polygon points="27.775,-5.475 27.775,-9.42561728395062 23.725,-9.42561728395062 23.725,-5.475 27.775,-5.475" fill="#a5d6a7" stroke="#263238" stroke-width="0.04"/>
+<circle cx="25.75" cy="-7.5" r="0.1" fill="black"/>
+<text x="25.9" y="-7.5" font-size="0.3">dining: 16.00 m²</text>
+<polygon points="27.775,-0.9750000000000001 27.775,-4.6787037037037065 23.725,-4.6787037037037065 23.725,-0.9750000000000001 27.775,-0.9750000000000001" fill="#ffcc80" stroke="#263238" stroke-width="0.04"/>
+<circle cx="25.75" cy="-3.0" r="0.1" fill="black"/>
+<text x="25.9" y="-3.0" font-size="0.3">kitchen: 15.00 m²</text>
+<polygon points="18.025,-11.475 18.025,-17.425413223140495 11.974999999999998,-17.425413223140495 11.974999999999998,-11.475 18.025,-11.475" fill="#ce93d8" stroke="#263238" stroke-width="0.04"/>
+<circle cx="15.0" cy="-14.5" r="0.1" fill="black"/>
+<text x="15.15" y="-14.5" font-size="0.3">living: 36.00 m²</text>
+<polygon points="7.275,-2.2249999999999996 7.275,-8.175413223140495 1.2249999999999996,-8.175413223140495 1.2249999999999996,-2.2249999999999996 7.275,-2.2249999999999996" fill="#80cbc4" stroke="#263238" stroke-width="0.04"/>
+<circle cx="4.25" cy="-5.25" r="0.1" fill="black"/>
+<text x="4.4" y="-5.25" font-size="0.3">master_bedroom: 36.00 m²</text>
+<polygon points="28.275,-11.11959459459459 28.275,-16.525 22.725,-16.525 22.725,-11.11959459459459 28.275,-11.11959459459459" fill="#ef9a9a" stroke="#263238" stroke-width="0.04"/>
+<circle cx="25.75" cy="-14.0" r="0.1" fill="black"/>
+<text x="25.9" y="-14.0" font-size="0.3">second_bedroom: 30.00 m²</text>
+<text x="0.0" y="-18.7" font-size="0.4">CP3 precise rectangles — unresolved</text></svg>

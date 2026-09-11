@@ -1,0 +1,11 @@
+{
+  "case": "retrofit",
+  "rooms": 6,
+  "grid_size": 0.5,
+  "seed_proxy_init_seconds": 0.0904173000017181,
+  "seed_moving_ms": 14.900476666662144,
+  "seed_cached_stay_ms": 0.9627200000977609,
+  "rectangle_stay_ms": 386.42525666655274,
+  "n": 30,
+  "note": "Single-process environment timings; different actions; not convergence or quality evidence"
+}

@@ -1,0 +1,687 @@
+{
+  "decoder_version": "whole_edge_v1",
+  "estimated": false,
+  "snapshot": {
+    "schema_version": 1,
+    "completed_episodes": 0,
+    "step": 0,
+    "seeds": {
+      "bathroom": [
+        4.25,
+        14.0
+      ],
+      "dining": [
+        25.75,
+        7.5
+      ],
+      "kitchen": [
+        25.75,
+        3.0
+      ],
+      "living": [
+        15.0,
+        14.5
+      ],
+      "master_bedroom": [
+        4.25,
+        5.25
+      ],
+      "second_bedroom": [
+        25.75,
+        14.0
+      ]
+    }
+  },
+  "validation": {
+    "estimated": false,
+    "geometry_valid": true,
+    "errors": [],
+    "rooms": {
+      "living": {
+        "area": 36.0,
+        "target_area": 36.0,
+        "area_error": 0.0,
+        "rectangularity": 1.0,
+        "aspect": 1.0167361111111113,
+        "aspect_in_range": true
+      },
+      "master_bedroom": {
+        "area": 36.0,
+        "target_area": 36.0,
+        "area_error": 0.0,
+        "rectangularity": 1.0,
+        "aspect": 1.0167361111111113,
+        "aspect_in_range": true
+      },
+      "second_bedroom": {
+        "area": 30.000000000000004,
+        "target_area": 30.0,
+        "area_error": 3.552713678800501e-15,
+        "rectangularity": 1.0,
+        "aspect": 1.0267499999999987,
+        "aspect_in_range": true
+      },
+      "kitchen": {
+        "area": 15.0,
+        "target_area": 15.0,
+        "area_error": 0.0,
+        "rectangularity": 1.0,
+        "aspect": 1.0934999999999984,
+        "aspect_in_range": true
+      },
+      "bathroom": {
+        "area": 8.0,
+        "target_area": 8.0,
+        "area_error": 0.0,
+        "rectangularity": 1.0,
+        "aspect": 1.1628125000000005,
+        "aspect_in_range": true
+      },
+      "dining": {
+        "area": 16.000000000000004,
+        "target_area": 16.0,
+        "area_error": 3.552713678800501e-15,
+        "rectangularity": 1.0,
+        "aspect": 1.0251562499999984,
+        "aspect_in_range": true
+      }
+    },
+    "relations": [
+      {
+        "source": "living",
+        "target": "dining",
+        "kind": "adjacent",
+        "shared_length": 0.0,
+        "distance": 6.0572245720991695,
+        "satisfied": false
+      },
+      {
+        "source": "dining",
+        "target": "kitchen",
+        "kind": "adjacent",
+        "shared_length": 0.0,
+        "distance": 0.7962962962962932,
+        "satisfied": false
+      },
+      {
+        "source": "master_bedroom",
+        "target": "bathroom",
+        "kind": "adjacent",
+        "shared_length": 0.0,
+        "distance": 4.299586776859505,
+        "satisfied": false
+      },
+      {
+        "source": "second_bedroom",
+        "target": "bathroom",
+        "kind": "adjacent",
+        "shared_length": 0.0,
+        "distance": 16.950000000000006,
+        "satisfied": false
+      },
+      {
+        "source": "kitchen",
+        "target": "master_bedroom",
+        "kind": "separate",
+        "shared_length": 0.0,
+        "distance": 16.45,
+        "satisfied": true
+      },
+      {
+        "source": "bathroom",
+        "target": "dining",
+        "kind": "separate",
+        "shared_length": 0.0,
+        "distance": 18.20717536986286,
+        "satisfied": true
+      }
+    ],
+    "relations_satisfied": false
+  },
+  "selected_phase": 0,
+  "rounds": 28,
+  "status": "unresolved",
+  "retreat_attempts": 24,
+  "retreat_accepted": 0,
+  "limitations": [
+    "rectangles_only",
+    "bounded_heuristic_not_feasibility_proof",
+    "no_door_or_corridor_proof"
+  ],
+  "trials": [
+    {
+      "phase": 0,
+      "score": [
+        0,
+        4,
+        0.0,
+        0.0
+      ],
+      "rounds": 28
+    },
+    {
+      "phase": 1,
+      "score": [
+        0,
+        4,
+        0.0,
+        0.0
+      ],
+      "rounds": 28
+    },
+    {
+      "phase": 2,
+      "score": [
+        0,
+        4,
+        0.0,
+        0.0
+      ],
+      "rounds": 28
+    },
+    {
+      "phase": 3,
+      "score": [
+        0,
+        4,
+        0.0,
+        0.0
+      ],
+      "rounds": 28
+    }
+  ],
+  "polygons": {
+    "bathroom": [
+      [
+        5.775,
+        12.475
+      ],
+      [
+        5.775,
+        15.09795081967213
+      ],
+      [
+        2.7249999999999996,
+        15.09795081967213
+      ],
+      [
+        2.7249999999999996,
+        12.475
+      ],
+      [
+        5.775,
+        12.475
+      ]
+    ],
+    "dining": [
+      [
+        27.775,
+        5.475
+      ],
+      [
+        27.775,
+        9.42561728395062
+      ],
+      [
+        23.725,
+        9.42561728395062
+      ],
+      [
+        23.725,
+        5.475
+      ],
+      [
+        27.775,
+        5.475
+      ]
+    ],
+    "kitchen": [
+      [
+        27.775,
+        0.9750000000000001
+      ],
+      [
+        27.775,
+        4.6787037037037065
+      ],
+      [
+        23.725,
+        4.6787037037037065
+      ],
+      [
+        23.725,
+        0.9750000000000001
+      ],
+      [
+        27.775,
+        0.9750000000000001
+      ]
+    ],
+    "living": [
+      [
+        18.025,
+        11.475
+      ],
+      [
+        18.025,
+        17.425413223140495
+      ],
+      [
+        11.974999999999998,
+        17.425413223140495
+      ],
+      [
+        11.974999999999998,
+        11.475
+      ],
+      [
+        18.025,
+        11.475
+      ]
+    ],
+    "master_bedroom": [
+      [
+        7.275,
+        2.2249999999999996
+      ],
+      [
+        7.275,
+        8.175413223140495
+      ],
+      [
+        1.2249999999999996,
+        8.175413223140495
+      ],
+      [
+        1.2249999999999996,
+        2.2249999999999996
+      ],
+      [
+        7.275,
+        2.2249999999999996
+      ]
+    ],
+    "second_bedroom": [
+      [
+        28.275,
+        11.11959459459459
+      ],
+      [
+        28.275,
+        16.525
+      ],
+      [
+        22.725,
+        16.525
+      ],
+      [
+        22.725,
+        11.11959459459459
+      ],
+      [
+        28.275,
+        11.11959459459459
+      ]
+    ]
+  },
+  "decode_seconds": 0.40399739999702433,
+  "config_snapshot": {
+    "ProjectType": "adaptive_reuse",
+    "BuildingTypology": "traditional_tangwu",
+    "ConversionGoal": "modern_residence",
+    "Render": true,
+    "Language": "zh",
+    "Training": {
+      "agent_name": "mappo",
+      "episodes": 1000,
+      "max_steps": 240,
+      "batch_size": 64,
+      "lr": 0.0003,
+      "seed": 42,
+      "save_interval": 20,
+      "ckpt_path": "",
+      "resume_mode": "fresh"
+    },
+    "AdaptiveReuseEnvironment": {
+      "grid_size": 0.5,
+      "move_step": 0.5,
+      "resize_step": 0.5,
+      "randomize_initial": true,
+      "initial_jitter_steps": 1,
+      "area_tolerance": 0.12,
+      "adjacency_distance": 0.5,
+      "separation_distance": 3.0,
+      "max_intervention_ratio": 0.45,
+      "success_patience": 8
+    },
+    "ExistingBuilding": {
+      "boundary": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          30.0,
+          0.0
+        ],
+        [
+          30.0,
+          18.0
+        ],
+        [
+          0.0,
+          18.0
+        ]
+      ],
+      "original_spaces": [
+        {
+          "id": "living",
+          "rect": [
+            8.5,
+            11.5,
+            21.5,
+            17.5
+          ],
+          "name": "原堂屋"
+        },
+        {
+          "id": "master_bedroom",
+          "rect": [
+            1.0,
+            1.0,
+            7.5,
+            9.5
+          ],
+          "name": "原西侧房"
+        },
+        {
+          "id": "second_bedroom",
+          "rect": [
+            22.5,
+            10.5,
+            29.0,
+            17.5
+          ],
+          "name": "原东侧房"
+        },
+        {
+          "id": "kitchen",
+          "rect": [
+            22.5,
+            1.0,
+            29.0,
+            5.0
+          ],
+          "name": "原灶房"
+        },
+        {
+          "id": "bathroom",
+          "rect": [
+            1.0,
+            10.5,
+            7.5,
+            17.5
+          ],
+          "name": "原西北房"
+        },
+        {
+          "id": "dining",
+          "rect": [
+            22.5,
+            5.5,
+            29.0,
+            9.5
+          ],
+          "name": "原东南房"
+        }
+      ],
+      "fixed_objects": [],
+      "structure_schema_version": 2
+    },
+    "TargetSpaces": [
+      {
+        "id": "living",
+        "name": "客厅（原堂屋更新）",
+        "initial_rect": [
+          8.5,
+          11.5,
+          21.5,
+          17.5
+        ],
+        "target_area": 36.0,
+        "area_range": [
+          30.0,
+          42.0
+        ],
+        "aspect_range": [
+          1.0,
+          2.0
+        ]
+      },
+      {
+        "id": "master_bedroom",
+        "name": "主卧室",
+        "initial_rect": [
+          1.0,
+          1.0,
+          7.5,
+          9.5
+        ],
+        "target_area": 36.0,
+        "area_range": [
+          30.0,
+          42.0
+        ],
+        "aspect_range": [
+          1.0,
+          1.8
+        ]
+      },
+      {
+        "id": "second_bedroom",
+        "name": "次卧室",
+        "initial_rect": [
+          22.5,
+          10.5,
+          29.0,
+          17.5
+        ],
+        "target_area": 30.0,
+        "area_range": [
+          24.0,
+          36.0
+        ],
+        "aspect_range": [
+          1.0,
+          1.8
+        ]
+      },
+      {
+        "id": "kitchen",
+        "name": "厨房",
+        "initial_rect": [
+          22.5,
+          1.0,
+          29.0,
+          5.0
+        ],
+        "target_area": 15.0,
+        "area_range": [
+          12.0,
+          18.0
+        ],
+        "aspect_range": [
+          1.0,
+          2.2
+        ]
+      },
+      {
+        "id": "bathroom",
+        "name": "卫生间",
+        "initial_rect": [
+          1.0,
+          10.5,
+          7.5,
+          17.5
+        ],
+        "target_area": 8.0,
+        "area_range": [
+          6.0,
+          10.0
+        ],
+        "aspect_range": [
+          1.0,
+          2.0
+        ]
+      },
+      {
+        "id": "dining",
+        "name": "餐厅",
+        "initial_rect": [
+          22.5,
+          5.5,
+          29.0,
+          9.5
+        ],
+        "target_area": 16.0,
+        "area_range": [
+          12.0,
+          20.0
+        ],
+        "aspect_range": [
+          1.0,
+          2.2
+        ]
+      }
+    ],
+    "FunctionalRelations": [
+      {
+        "from": "living",
+        "to": "dining",
+        "type": "adjacent"
+      },
+      {
+        "from": "dining",
+        "to": "kitchen",
+        "type": "adjacent"
+      },
+      {
+        "from": "master_bedroom",
+        "to": "bathroom",
+        "type": "adjacent"
+      },
+      {
+        "from": "second_bedroom",
+        "to": "bathroom",
+        "type": "adjacent"
+      },
+      {
+        "from": "kitchen",
+        "to": "master_bedroom",
+        "type": "separate"
+      },
+      {
+        "from": "bathroom",
+        "to": "dining",
+        "type": "separate"
+      }
+    ],
+    "RewardWeights": {
+      "area": 3.0,
+      "shape": 1.0,
+      "adjacency": 1.5,
+      "separation": 1.0,
+      "structure_alignment": 0.8,
+      "original_reuse": 1.5,
+      "intervention": 1.0,
+      "invalid_action": 4.0,
+      "team_coordination": 0.5
+    },
+    "AlgorithmAdvanced": {
+      "hidden_size": 256,
+      "gamma": 0.99,
+      "gae_lambda": 0.95,
+      "clip_epsilon": 0.2,
+      "entropy_coef": 0.01,
+      "ppo_epochs": 5,
+      "max_grad_norm": 0.5,
+      "reward_clip_range": 8.0
+    }
+  },
+  "comparison": [
+    {
+      "id": "living",
+      "proxy_area": 36.0,
+      "precise_area": 36.0,
+      "proxy_minus_precise": 0.0
+    },
+    {
+      "id": "master_bedroom",
+      "proxy_area": 36.0,
+      "precise_area": 36.0,
+      "proxy_minus_precise": 0.0
+    },
+    {
+      "id": "second_bedroom",
+      "proxy_area": 30.0,
+      "precise_area": 30.000000000000004,
+      "proxy_minus_precise": -3.552713678800501e-15
+    },
+    {
+      "id": "kitchen",
+      "proxy_area": 15.0,
+      "precise_area": 15.0,
+      "proxy_minus_precise": 0.0
+    },
+    {
+      "id": "bathroom",
+      "proxy_area": 8.0,
+      "precise_area": 8.0,
+      "proxy_minus_precise": 0.0
+    },
+    {
+      "id": "dining",
+      "proxy_area": 16.0,
+      "precise_area": 16.000000000000004,
+      "proxy_minus_precise": -3.552713678800501e-15
+    }
+  ],
+  "proxy_relations": [
+    {
+      "source": "living",
+      "target": "dining",
+      "kind": "adjacent",
+      "estimated": 0.0
+    },
+    {
+      "source": "dining",
+      "target": "kitchen",
+      "kind": "adjacent",
+      "estimated": 1.0
+    },
+    {
+      "source": "master_bedroom",
+      "target": "bathroom",
+      "kind": "adjacent",
+      "estimated": 0.0
+    },
+    {
+      "source": "second_bedroom",
+      "target": "bathroom",
+      "kind": "adjacent",
+      "estimated": 0.0
+    },
+    {
+      "source": "kitchen",
+      "target": "master_bedroom",
+      "kind": "separate",
+      "estimated": 1.0
+    },
+    {
+      "source": "bathroom",
+      "target": "dining",
+      "kind": "separate",
+      "estimated": 1.0
+    }
+  ]
+}

@@ -1,0 +1,196 @@
+Render: false
+RenderEverySteps: 20
+MonitorImageAnnotations: false
+SavedImageAnnotations: true
+Language: zh
+Show_Prior: false
+RewardAdvanced:
+  prior_layout_scale: 2.0
+  area_under_penalty_scale: 5.0
+  area_over_penalty_scale: 20.0
+  area_reward_bonus: 10.0
+  aspect_under_penalty_scale: 5.0
+  aspect_over_penalty_scale: 20.0
+  aspect_reward_bonus: 30.0
+  edge_touch_threshold: 0.02
+  edge_near_threshold: 0.5
+  edge_touch_reward: 20.0
+  edge_near_reward_scale: 8.0
+  shared_wall_reward_per_meter: 2.0
+  door_to_door_threshold: 2.0
+  door_to_door_penalty_scale: 20.0
+  door_face_to_face_threshold: 0.5
+  door_face_to_face_extra_penalty: 30.0
+  corner_touch_threshold: 0.02
+  corner_near_threshold: 0.5
+  corner_touch_reward: 20.0
+  corner_near_reward_scale: 20.0
+  corner_dot_threshold: 0.1
+  door_proximity_threshold: 0.6
+  vertical_required_clearance: 1.2
+  horizontal_required_clearance: 1.0
+  door_block_penalty_scale: 200.0
+  overlap_penalty_scale: 100.0
+  nesting_equal_dimension_tolerance: 0.1
+  nesting_exact_match_tolerance: 0.01
+  nesting_equal_dimension_penalty_scale: 20.0
+  nesting_equal_dimension_exact_multiplier: 2.0
+  nesting_sigmoid_scale: 10.0
+  nesting_penalty_scale: 5.0
+  adjacency_synergy_reward: 2.0
+  adjacency_repellent_penalty: -2.0
+  privacy_sigmoid_k: 10.0
+  privacy_sigmoid_midpoint: 0.5
+  privacy_base_reward: 2.0
+  privacy_reward_scale: 5.0
+  south_region_ratio: 0.3
+  south_position_reward_scale: 5.0
+  south_balcony_bonus: 2.0
+  noise_sensitivity_bedroom: 0.5
+  noise_sensitivity_bathroom: 0.2
+  noise_sensitivity_kitchen: 0.1
+  noise_sensitivity_living_room: 0.15
+  noise_sensitivity_balcony: 0.05
+  noise_adjacent_distance_threshold: 0.1
+  adjacency_synergistic_pairs:
+  - [BEDROOM, BATHROOM]
+  - [BEDROOM, BALCONY]
+  - [BATHROOM, BALCONY]
+  adjacency_repellent_pairs:
+  - [BEDROOM, KITCHEN]
+  privacy_private_spaces: [BEDROOM, BATHROOM]
+  south_lighting_room_types: [BEDROOM, LIVING_ROOM]
+  noise_calc_room_types: [BEDROOM, BATHROOM, KITCHEN, LIVING_ROOM]
+Training:
+  agent_name: mappo
+  episodes: 15000
+  max_steps: 600
+  batch_size: 32
+  lr: 0.0003
+  seed: -1
+  train: true
+  save_threshold: 50.0
+  final_model_save_interval: 10
+  latest_layout_save_interval: 10
+  num_workers: 1
+  ckpt_path: F:/Rein_2026.05.13/rllayout2/results2/mappo/57228_1778681984/checkpoints/epsiode_000037_reward_257.089
+  resume_mode: resume
+Environment:
+  init_width: 1.5
+  init_height: 1.5
+  boundary: [[2.0, 2.0], [8.0, 2.0], [8.0, 4.0], [12.0, 4.0], [12.0, 10.0], [4.0,
+      10.0], [4.0, 7.0], [2.0, 7.0]]
+  door_positions: [[12.0, 8.0], [12.0, 9.0]]
+  door_direction: 垂直
+  prior: [[3.0, 5.0], [10.1, 5.3], [8.3, 9.4], [5.1, 9.4], [5.8, 2.8]]
+  prior_random: false
+  prior_limit_area: [[10.0, 10.0], [10.0, 7.0], [12.0, 7.0], [12.0, 10.0]]
+  prior_interval: 3.0
+  room_type: [卧室, 卧室, 厨房, 浴室, 阳台]
+  move_value: 0.05
+  reward_method: extra
+  Reward_Extra_Weight:
+    邻接关系奖励: 0.0
+    噪声干扰度奖励: 0.0
+    隐私保护奖励: 1.0
+    南向采光奖励: 0.0
+    最短路径奖励: 0.0
+  Reward_Base_Weight:
+    面积奖励: 1.0
+    长宽比奖励: 1.0
+    贴边奖励: 1.0
+    房间与房间之间的边界贴合奖励: 1.0
+    角落占领奖励: 1.0
+    外门遮挡惩罚: 1.0
+    先验知识布局奖励: 1.0
+    房间嵌套惩罚: 1.0
+Room:
+  MinAreas:
+    卧室: 9
+    厨房: 4
+    浴室: 2
+    阳台: 3
+    客厅: 4
+  UseAreasRatio: false
+  MaxAreasRatio:
+    卧室: 0.4
+    厨房: 0.25
+    浴室: 0.25
+    阳台: 0.25
+  MaxAreasValue:
+    卧室: 15
+    厨房: 7
+    浴室: 7
+    阳台: 5
+  ASPECT_RATIO_RANGES:
+    卧室: [1.0, 1.6]
+    厨房: [1.0, 1.8]
+    浴室: [1.0, 1.6]
+    阳台: [1.0, 2.8]
+  NOISE_WEIGHTS:
+    客厅: 5.5
+    卧室: 5.5
+    厨房: 2.5
+    浴室: 0.0
+    阳台: 1.5
+  NESTING_WEIGHTS:
+    客厅: 0.25
+    卧室: 0.0
+    厨房: 0.15
+    浴室: 0.1
+    阳台: 0.3
+  NESTING_PRIORITY:
+    客厅: 1
+    卧室: 5
+    厨房: 2
+    浴室: 4
+    阳台: 3
+RenderInterval: 1.0
+EnvironmentAdvanced:
+  grid_size: 15.0
+  grid_resolution: 0.2
+  prior_match_threshold: 1.0
+  prior_random_max_attempts: 3000
+  prior_random_wall_clearance: 0.8
+  prior_random_door_avoidance: 1.2
+  prior_corner_region_size: 1.5
+  prior_corner_attempt_limit: 50
+  prior_distance_relax_attempts: 100
+  living_room_min_ratio: 0.3
+  living_room_max_ratio: 0.5
+  room_init_max_attempts: 100
+  door_center_offset: 0.6
+  vertical_door_default_length: 1.2
+  horizontal_door_default_length: 1.0
+  boundary_retry_scale_factors: [0.8, 0.6, 0.4, 0.2, 0.1, 0.05]
+  prior_distance_relaxation: [2.5, 2.0, 1.5, 1.0, 0.8]
+AlgorithmAdvanced:
+  mappo_hidden_size: 256
+  mappo_gamma: 0.99
+  mappo_gae_lambda: 0.95
+  mappo_clip_epsilon: 0.2
+  mappo_value_coef: 0.5
+  mappo_entropy_coef: 0.01
+  mappo_ppo_epochs: 5
+  mappo_max_grad_norm: 0.5
+  mappo_update_step: 1024
+  mappo_reward_clip_range: 8.0
+  qmix_hidden_size: 128
+  qmix_mixing_hidden_size: 32
+  qmix_hyper_hidden_size: 64
+  qmix_gamma: 0.99
+  qmix_tau: 0.01
+  qmix_buffer_size: 20000
+  qmix_update_frequency: 50
+  qmix_epsilon: 1.0
+  qmix_epsilon_decay: 0.999
+  qmix_min_epsilon: 0.01
+  madqn_hidden_dim: 256
+  madqn_lr: 0.0001
+  madqn_gamma: 0.99
+  madqn_tau: 0.01
+  madqn_epsilon_start: 1.0
+  madqn_epsilon_end: 0.01
+  madqn_epsilon_decay: 0.9995
+  madqn_buffer_capacity: 100000
+  madqn_device: cuda:0

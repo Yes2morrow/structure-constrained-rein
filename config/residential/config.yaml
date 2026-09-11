@@ -1,0 +1,51 @@
+Training:
+  agent_name: mappo
+  episodes: 3000
+  max_steps: 300
+  batch_size: 64
+  lr: 0.0003
+  seed: 42
+  save_interval: 25
+
+Site:
+  boundary: [[0, 0], [120, 0], [120, 90], [0, 90]]
+  entrance: [60, 0]
+
+Buildings:
+  count: 6
+  types: [residential, residential, residential, residential, residential, residential]
+  initial_width: 22
+  initial_depth: 12
+  width_range: [18, 35]
+  depth_range: [10, 16]
+  floors: [12, 12, 12, 12, 12, 12]
+  floor_height: 3.0
+  move_step: 1.0
+  resize_step: 1.0
+  nearest_neighbors: 3
+
+PlanningTargets:
+  target_far: 1.8
+  target_density: 0.18
+  minimum_spacing: 12.0
+  boundary_setback: 5.0
+  convergence_patience: 80
+
+RewardWeights:
+  boundary: 20.0
+  overlap: 30.0
+  spacing: 10.0
+  far: 5.0
+  density: 5.0
+  orientation: 2.0
+  accessibility: 2.0
+
+AlgorithmAdvanced:
+  hidden_size: 256
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_epsilon: 0.2
+  entropy_coef: 0.01
+  ppo_epochs: 5
+  max_grad_norm: 0.5
+  reward_clip_range: 8.0
