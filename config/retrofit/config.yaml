@@ -45,39 +45,12 @@ ExistingBuilding:
   - id: dining
     rect: [22.5, 5.5, 29.0, 9.5]
     name: 原东南房
-  fixed_objects:
-  - id: retained_circulation_095e23f19422
-    type: retained_circulation
-    rect: [20.74015748031496, 11.303149606299213, 20.881889763779526, 11.44488188976378]
-  - id: retained_circulation_0df4629c69c9
-    type: retained_circulation
-    rect: [13.759842519685039, 4.287401574803149, 17.940944881889763, 10.665354330708661]
-  - id: fixed_bc38308774d7
-    type: fixed
-    rect: [18.15354330708661, 12.330708661417324, 18.224409448818896, 12.401574803149607]
-  - id: column_79581d42b8b0
-    type: column
-    center: [3.200787402, 13.996062992]
-    size: [0.070866142, 0.070866142]
-    rect: [3.165354331, 13.960629921, 3.236220473, 14.031496063]
-    parametric: true
-  - id: column_e78009165b2b
-    type: column
-    center: [4.37007874, 14.066929134]
-    size: [0.070866142, 0.070866142]
-    rect: [4.334645669, 14.031496063, 4.405511811, 14.102362205]
-    parametric: true
-  - id: column_f53495fa7bf9
-    type: column
-    center: [10.07480315, 9.637795276]
-    size: [0.070866142, 0.070866142]
-    rect: [10.039370079, 9.602362205, 10.110236221, 9.673228347]
-    parametric: true
+  fixed_objects: []
   structure_schema_version: 2
 TargetSpaces:
 - id: living
   name: 客厅（原堂屋更新）
-  initial_rect: [8.5, 11.5, 21.5, 17.5]
+  initial_rect: [8.5, 11.5, 21.584858490566038, 16.09896226415094]
   target_area: 36.0
   area_range: [30.0, 42.0]
   aspect_range: [1.0, 2.0]
