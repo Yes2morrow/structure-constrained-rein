@@ -28,7 +28,8 @@ _render_plan_constraint_editor(load_config('retrofit'),'retrofit')
 """
         loader=lambda _:copy.deepcopy(state)
         with patch('gui.config_store.load_config',loader),patch.object(editor,'load_config',loader),\
-             patch.object(editor,'save_config',lambda c,i:state.update(copy.deepcopy(c))),patch.object(page,'st_canvas',canvas):
+             patch.object(editor,'save_config',lambda c,i:state.update(copy.deepcopy(c))),patch.object(page,'st_canvas',canvas),\
+             patch.object(page,'load_config',loader),patch.object(page,'save_config',lambda c,i:state.update(copy.deepcopy(c))):
             app=AppTest.from_string(source,default_timeout=30).run()
             next(r for r in app.radio if r.label=='画布操作').set_value('调整建筑边界').run()
             drag[0]=True

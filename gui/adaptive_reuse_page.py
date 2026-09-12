@@ -7,6 +7,7 @@ import base64
 import hashlib
 import json
 from io import BytesIO
+from copy import deepcopy
 from pathlib import Path
 
 import numpy as np
@@ -24,6 +25,7 @@ from core.envs import AdaptiveReuseEnv
 from gui.config_store import load_config, save_config
 from gui.structure_editor import render_structure_editor, save_structures
 from gui.boundary_editor import boundary_handles, parse_boundary_handles, save_boundary
+from gui.environment_canvas import scene, parse_scene, controls as environment_controls, color as control_color, entrance_points, DISPLAY_LAYERS
 from gui.structure_canvas import canvas_objects, parse_canvas, signature, viewport, identity_colors
 
 
@@ -52,10 +54,16 @@ CONSTRAINT_STYLES = {
 REFERENCE_PLAN_UI_VERSION = "structure_sync_v2"
 
 
-def _plan_objects(config: dict, width: int, height: int) -> list[dict]:
+def _plan_objects(config: dict, width: int, height: int, display=None) -> list[dict]:
     """Embed the plan in Fabric JSON, avoiding the legacy background URL adapter."""
     buffer = BytesIO()
-    _load_plan_image(config, width, height).save(buffer, format="PNG")
+    if display is None:
+        image=_load_plan_image(config,width,height)
+    else:
+        image=_create_tangwu_plan_image(config,width,height,grid_only=True)
+        if config['ExistingBuilding'].get('plan_image') and display.get('background',(True,0))[0]:
+            image=Image.blend(image,_load_plan_image(config,width,height),1-display.get('background',(True,0))[1]/100)
+    image.save(buffer, format="PNG")
     return [{
         "type": "image", "left": 0, "top": 0,
         "width": width, "height": height,
@@ -111,6 +119,8 @@ def _target_records(items: list[dict]) -> list[dict]:
             "x1": rect[0], "y1": rect[1], "x2": rect[2], "y2": rect[3],
             "target_area": item.get("target_area", 1), "min_area": areas[0], "max_area": areas[1],
             "aspect_min": aspects[0], "aspect_max": aspects[1],
+            "seed_x": item.get("seed",[(rect[0]+rect[2])/2,(rect[1]+rect[3])/2])[0],
+            "seed_y": item.get("seed",[(rect[0]+rect[2])/2,(rect[1]+rect[3])/2])[1],
         })
     return records
 
@@ -132,6 +142,12 @@ def _records_to_targets(frame: pd.DataFrame, previous=()) -> list[dict]:
             "area_range": [float(raw["min_area"]), float(raw["max_area"])],
             "aspect_range": [float(raw["aspect_min"]), float(raw["aspect_max"])],
         })
+        if 'seed_x' in raw and 'seed_y' in raw:
+            seed=[float(raw['seed_x']),float(raw['seed_y'])]
+            old=originals.get(identifier,{})
+            r=old.get('initial_rect',item['initial_rect'])
+            default_seed=[(r[0]+r[2])/2,(r[1]+r[3])/2]
+            if 'seed' in old or seed!=default_seed: item['seed']=seed
         result.append(item)
     return result
 
@@ -149,7 +165,7 @@ def _plan_font(size: int):
     return ImageFont.load_default()
 
 
-def _create_tangwu_plan_image(config: dict, width: int, height: int):
+def _create_tangwu_plan_image(config: dict, width: int, height: int, grid_only=False):
     """根据原始空间数据生成可直接标注的传统堂屋二维底图。"""
     building = config["ExistingBuilding"]
     boundary = building["boundary"]
@@ -172,6 +188,8 @@ def _create_tangwu_plan_image(config: dict, width: int, height: int):
     for y in np.arange(min_y, max_y + grid, grid):
         _, py = point(min_x, y)
         draw.line([(0, py), (width, py)], fill="#edf0f2", width=1)
+
+    if grid_only: return image
 
     room_colors = ["#f7dada", "#f6d5d7", "#f8dcdd", "#cfe8cf", "#f4d5d8", "#f7d8da"]
     for index, item in enumerate(building.get("original_spaces", [])):
@@ -212,10 +230,9 @@ def _create_tangwu_plan_image(config: dict, width: int, height: int):
     draw.line(boundary_pixels + [boundary_pixels[0]], fill="#182c3d", width=7, joint="curve")
 
     # 堂屋主入口符号，帮助辨识传统住宅的中轴与朝向。
-    entrance_x1, entrance_x2 = point(min_x + x_span * 0.46, min_y)[0], point(min_x + x_span * 0.54, min_y)[0]
-    entrance_y = point(min_x, min_y)[1]
-    draw.line([(entrance_x1, entrance_y), (entrance_x2, entrance_y)], fill="#faf9f5", width=10)
-    draw.line([(entrance_x1, entrance_y - 3), (entrance_x2, entrance_y - 3)], fill="#2d6f9f", width=7)
+    opening=[point(x,y) for x,y in entrance_points(building)]
+    if len(opening)>=2:
+        draw.line(opening,fill='#2d6f9f',width=7)
     draw.text((12, 10), "传统堂屋住宅·原始平面", fill="#1f3448", font=title_font)
     draw.text((12, 40), "浅色区域：原有房间　彩色覆盖：保留结构约束", fill="#617181", font=small_font)
     return image
@@ -237,6 +254,8 @@ def _load_plan_image(config: dict, width: int, height: int):
 
 
 def _render_residential_inputs(config, config_id):
+    original_before=deepcopy(config["ExistingBuilding"].get("original_spaces",[]))
+    revision=st.session_state.get(f"{config_id}_ar_canvas_revision",0)
     st.markdown("### 传统堂屋住宅输入")
     scenario_col1, scenario_col2 = st.columns(2)
     with scenario_col1:
@@ -253,7 +272,7 @@ def _render_residential_inputs(config, config_id):
         st.markdown("#### 原始空间（改造前状态）")
         original_df = st.data_editor(
             pd.DataFrame(_rect_records(config["ExistingBuilding"].get("original_spaces", []))),
-            num_rows="dynamic", use_container_width=True, key=f"{config_id}_ar_originals_{REFERENCE_PLAN_UI_VERSION}",
+            num_rows="dynamic", use_container_width=True, key=f"{config_id}_ar_originals_{REFERENCE_PLAN_UI_VERSION}_{revision}",
         )
         try:
             originals = _records_to_rects(original_df)
@@ -266,6 +285,13 @@ def _render_residential_inputs(config, config_id):
             st.error(f"原始空间坐标无效：{exc}")
             return False
 
+    if original_before!=config['ExistingBuilding']['original_spaces']:
+        saved=load_config(config_id)
+        saved['ExistingBuilding']['original_spaces']=config['ExistingBuilding']['original_spaces']
+        save_config(saved,config_id)
+        st.session_state[f'{config_id}_ar_canvas_revision']=revision+1
+        st.rerun()
+
     if st.button("保存住宅输入并应用到二维标注", type="primary", use_container_width=True):
         saved = load_config(config_id)
         for field in ("BuildingTypology", "ConversionGoal"):
@@ -275,6 +301,88 @@ def _render_residential_inputs(config, config_id):
         st.session_state[f"{config_id}_ar_canvas_revision"] = st.session_state.get(f"{config_id}_ar_canvas_revision", 0) + 1
         st.success("住宅类型、转换目标、建筑边界及坐标表已保存，并应用到下方二维标注。")
 
+    return True
+
+
+def _save_scene(config, config_id, updated):
+    saved=load_config(config_id)
+    for field in ('ExistingBuilding','TargetSpaces','FunctionalRelations'):
+        saved[field]=updated[field]
+        config[field]=updated[field]
+    save_config(saved,config_id)
+    key=f'{config_id}_ar_canvas_revision'
+    st.session_state[key]=st.session_state.get(key,0)+1
+
+
+def _render_target_editor(config, config_id):
+    revision=st.session_state.get(f'{config_id}_ar_canvas_revision',0)
+    baseline=deepcopy([config.get('TargetSpaces'),config.get('FunctionalRelations')])
+    st.markdown("### 目标功能空间智能体")
+    st.caption("每一行是一个独立智能体；initial_rect 是其从既有平面出发的初始状态。")
+    target_df = st.data_editor(
+        pd.DataFrame(_target_records(config.get("TargetSpaces", []))),
+        num_rows="dynamic", use_container_width=True, key=f"{config_id}_ar_targets_{REFERENCE_PLAN_UI_VERSION}_{revision}",
+    )
+    config["TargetSpaces"] = _records_to_targets(target_df,config.get('TargetSpaces',[]))
+    seed_valid=True
+    if config.get('SeedGrowth',{}).get('enabled',False):
+        from gui.seed_page import render_seed_settings
+        seed_valid=render_seed_settings(config,config_id)
+
+    st.markdown("### 功能关系")
+    relation_df = st.data_editor(
+        pd.DataFrame(config.get("FunctionalRelations", []), columns=["from", "to", "type","min_shared_length","min_clear_width","min_distance"]),
+        num_rows="dynamic", use_container_width=True, key=f"{config_id}_ar_relations_{REFERENCE_PLAN_UI_VERSION}",
+        column_config={"type": st.column_config.SelectboxColumn("type", options=["adjacent", "separate","connected","via_circulation"]),
+                       **{k:st.column_config.NumberColumn(k,min_value=.001) for k in ('min_shared_length','min_clear_width','min_distance')}},
+    )
+    config["FunctionalRelations"] = [
+        {"from": str(row["from"]).strip(), "to": str(row["to"]).strip(), "type": str(row["type"]),
+         **{k:float(row[k]) for k in ('min_shared_length','min_clear_width','min_distance') if pd.notna(row.get(k))}}
+        for row in relation_df.to_dict("records")
+        if str(_clean(row.get("from"))).strip() and str(_clean(row.get("to"))).strip()
+    ]
+    st.caption('from / to 是稳定的图节点 ID；移动种子不会更改关系。adjacent=实际共边，connected=开口连通，via_circulation=经交通空间连通，separate=分离；连通仍需门/通路证明。')
+
+    for r in config['TargetSpaces']:
+        rect=r['initial_rect']
+        if not all(math.isfinite(v) for v in rect) or rect[2]<=rect[0] or rect[3]<=rect[1]:
+            st.error('初始智能体区域宽高必须为正，坐标必须有效。')
+            return False
+    if baseline!=[config.get('TargetSpaces'),config.get('FunctionalRelations')]:
+        ids=[r['id'] for r in config['TargetSpaces']]
+        if len(ids)!=len(set(ids)) or any(e[k] not in ids for e in config['FunctionalRelations'] for k in ('from','to')):
+            st.error('智能体 ID 必须唯一；删除节点前请更新其图关系。')
+            return False
+        _save_scene(config,config_id,config)
+        st.rerun()
+    return seed_valid
+
+
+def _render_all_points(config,config_id):
+    with st.expander('全部对象控制点坐标（含门和其他结构）',expanded=False):
+        values=environment_controls(config)
+        keys=list(values)
+        rows=[dict(group=k[0],id=k[1],point=k[2],x=p[0],y=p[1]) for k,p in values.items()]
+        revision=st.session_state.get(f'{config_id}_ar_canvas_revision',0)
+        frame=st.data_editor(pd.DataFrame(rows),hide_index=True,disabled=['group','id','point'],height=260,
+            key=f'{config_id}_all_points_{revision}',column_config={k:st.column_config.NumberColumn(k,format='%.4f') for k in ('x','y')})
+        edited=frame.to_dict('records')
+        if edited!=rows:
+            w,h=760,480
+            objects=scene(config,w,h,CONSTRAINT_STYLES)
+            lookup={o['stroke']:o for o in objects if o['type']=='circle'}
+            scale,ox,oy=viewport(config['ExistingBuilding']['boundary'],w,h)
+            try:
+                for k,row,old in zip(keys,edited,rows):
+                    if row==old: continue
+                    lookup[control_color(k)].update(left=ox+float(row['x'])*scale,top=oy-float(row['y'])*scale)
+                updated=parse_scene(objects,config,w,h)
+                _save_scene(config,config_id,updated)
+                st.rerun()
+            except (ValueError,TypeError,KeyError) as exc:
+                st.error(f'控制点未保存：{exc}')
+                return False
     return True
 
 
@@ -322,29 +430,51 @@ def _render_plan_constraint_editor(config: dict, config_id: str) -> None:
             key=f"{config_id}_ar_constraint_type",
         )
         operation_mode = st.radio(
-            "画布操作", ["绘制约束", "选择/调整", "调整建筑边界"], horizontal=True,
+            "画布操作", ["统一点编辑", "绘制约束", "选择/调整", "调整建筑边界"], horizontal=True,
             key=f"{config_id}_ar_canvas_mode",
         )
+        layers={'全部对象':'all','建筑边界':'boundary','原有房间':'original','智能体初始区域':'agent','智能体种子':'seed','柱':'column','墙线与左右厚度':'wall','其他矩形构件':'fixed_rect','其他多边形构件':'fixed','门位置':'door'}
+        layer=layers[st.selectbox('编辑图层（控制可选点）',list(layers),key=f'{config_id}_environment_layer')]
+        entries=environment_controls(config)
+        ids=sorted({k[1] for k in entries if layer=='all' or k[0]==layer})
+        object_id=st.selectbox('编辑对象 ID（重叠时用于选取）',['全部']+ids,key=f'{config_id}_environment_object')
+        object_id=None if object_id=='全部' else object_id
         wall_left, wall_right = .12, .12
         if selected_type in ('shear_wall', 'load_bearing_wall'):
             wall_left = st.number_input('新墙左侧厚度（m）', min_value=0.0, value=.12, step=.01, key=f'{config_id}_new_wall_left')
             wall_right = st.number_input('新墙右侧厚度（m）', min_value=0.0, value=.12, step=.01, key=f'{config_id}_new_wall_right')
             st.caption('拖出墙线的起点与终点；左右按拖动方向定义。调整模式可移动、旋转、沿长度或厚度缩放。')
+        editing_label = '正在标注：'+CONSTRAINT_STYLES[selected_type][0] if operation_mode=='绘制约束' else '正在编辑：'+('全部对象' if layer=='all' else next(k for k,v in layers.items() if v==layer))
         st.markdown(
             f"<div style='padding:8px 10px;border-left:8px solid {CONSTRAINT_STYLES[selected_type][2]};"
-            f"background:#f5f7fa;border-radius:4px;'>正在标注：<b>{CONSTRAINT_STYLES[selected_type][0]}</b></div>",
+            f"background:#f5f7fa;border-radius:4px;'><b>{editing_label}</b></div>",
             unsafe_allow_html=True,
         )
 
     canvas_column, parameters_column = st.columns([1.05, 1], gap="medium")
     with parameters_column:
+        with st.expander('图层显示与透明度', expanded=True):
+            st.caption('勾选显示；透明度 0 为原始着色，100 为全透明。隐藏不会删除数据。')
+            rows=[{'类别':label,'显示':True,'透明度':0} for key,label in DISPLAY_LAYERS.items()]
+            rows += [{'类别':'对象名称','显示':True,'透明度':0},{'类别':'上传的平面底图','显示':True,'透明度':0}]
+            view=st.data_editor(pd.DataFrame(rows),hide_index=True,disabled=['类别'],
+                column_config={'显示':st.column_config.CheckboxColumn('显示'),'透明度':st.column_config.NumberColumn('透明度 %',min_value=0,max_value=100,step=5)},
+                key=f'{config_id}_environment_display',use_container_width=True)
+            display={key:(bool(row['显示']),float(row['透明度'] or 0)) for key,row in zip(list(DISPLAY_LAYERS)+['labels','background'],view.to_dict('records'))}
+            st.caption('上传图片中的内容属于底图像素，可整体隐藏；各类环境对象可独立隐藏。')
         inputs_valid = _render_residential_inputs(config, config_id)
         editor_valid = render_structure_editor(config, config_id) and inputs_valid
+        try:
+            editor_valid = _render_target_editor(config, config_id) and editor_valid
+            editor_valid = _render_all_points(config,config_id) and editor_valid
+        except (ValueError,TypeError,KeyError) as exc:
+            st.error(f"智能体数据未保存：{exc}")
+            editor_valid=False
 
     with canvas_column:
         if not editor_valid:
             st.info('请先补全右侧参数行，画布编辑将在数据有效后恢复。')
-            return
+            return False
         if st_canvas is None:
             st.warning("当前环境未安装 streamlit-drawable-canvas，暂时只能使用下方坐标表格。")
             return
@@ -352,19 +482,18 @@ def _render_plan_constraint_editor(config: dict, config_id: str) -> None:
         xs = [float(point[0]) for point in boundary]
         ys = [float(point[1]) for point in boundary]
         aspect = max((max(xs) - min(xs)) / max(max(ys) - min(ys), 1e-9), 0.35)
-        canvas_width = 760
+        canvas_width = 680
         canvas_height = max(360, min(680, int(canvas_width / aspect)))
-        plan_objects = _plan_objects(config, canvas_width, canvas_height)
-        plan_signature = hashlib.sha256(json.dumps(building, sort_keys=True).encode()).hexdigest()[:12]
+        plan_objects = _plan_objects(config, canvas_width, canvas_height, display)
+        plan_signature = hashlib.sha256(json.dumps([building,config.get("TargetSpaces"),display], sort_keys=True).encode()).hexdigest()[:12]
         _, fill_color, stroke_color = CONSTRAINT_STYLES[selected_type]
         revision = st.session_state.get(f"{config_id}_ar_canvas_revision", 0)
-        canvas_key = f"{config_id}_ar_constraint_canvas_{REFERENCE_PLAN_UI_VERSION}_{plan_signature}_{selected_type}_{operation_mode}_{revision}"
+        canvas_key = f"{config_id}_ar_constraint_canvas_{REFERENCE_PLAN_UI_VERSION}_{plan_signature}_{selected_type}_{operation_mode}_{layer}_{object_id}_{revision}"
         editing_boundary = operation_mode == "调整建筑边界"
-        structural_objects = canvas_objects(building.get("fixed_objects", []), boundary, canvas_width, canvas_height, CONSTRAINT_STYLES)
-        if editing_boundary:
-            for obj in structural_objects:
-                obj.update(selectable=False,evented=False)
-        handles = boundary_handles(boundary,canvas_width,canvas_height) if editing_boundary else []
+        display_layer='boundary' if editing_boundary else layer
+        display_objects=scene(config,canvas_width,canvas_height,CONSTRAINT_STYLES,display_layer,object_id,display)
+        if operation_mode=='绘制约束':
+            for obj in display_objects: obj.update(selectable=False,evented=False)
         canvas = st_canvas(
             fill_color=fill_color,
             stroke_width=2,
@@ -372,7 +501,7 @@ def _render_plan_constraint_editor(config: dict, config_id: str) -> None:
             background_color="#ffffff",
             initial_drawing={
                 "version": "4.4.0",
-                "objects": plan_objects + structural_objects + handles,
+                "objects": plan_objects + display_objects,
             },
             update_streamlit=True,
             height=canvas_height,
@@ -381,13 +510,12 @@ def _render_plan_constraint_editor(config: dict, config_id: str) -> None:
             display_toolbar=True,
             key=canvas_key,
         )
-        st.caption('松开鼠标后自动同步参数表并保存。墙的厚度缩放保持左右厚度比例；旋转保持墙属性与方向。尺寸不吸附动作网格。核心筒由剪力墙重新识别。')
+        st.caption('统一点编辑：橙色为边界，棕色为原房间，蓝色半透明为初始智能体，紫色为种子。角点调尺寸、中心点平移；墙线端点与左右厚度点独立可拖。重叠时选择图层和对象 ID。原房间/初始区域保持矩形；拖动不改变图节点关系。')
         ready_key = f'{config_id}_structure_canvas_ready'
         if canvas.json_data is not None and st.session_state.get(ready_key) != canvas_key:
             raw = canvas.json_data.get('objects', [])
             expected = set(identity_colors(building.get('fixed_objects', [])).values())
-            if editing_boundary:
-                expected.update(h['stroke'] for h in handles)
+            expected.update(control_color(k) for k in environment_controls(config))
             observed = {o.get('stroke') for o in raw}
             # Fabric emits an empty frame before asynchronous initialDrawing hydration.
             # It must never be interpreted as a user deleting saved structures.
@@ -395,16 +523,17 @@ def _render_plan_constraint_editor(config: dict, config_id: str) -> None:
                 st.session_state[ready_key] = canvas_key
         if canvas.json_data is not None and editor_valid and st.session_state.get(ready_key) == canvas_key:
             try:
-                if editing_boundary:
-                    points = parse_boundary_handles(canvas.json_data.get('objects', []), boundary, canvas_width, canvas_height)
-                    if points != boundary:
-                        save_boundary(config, config_id, points)
+                if operation_mode!='绘制约束':
+                    updated=parse_scene(canvas.json_data.get('objects',[]),config,canvas_width,canvas_height)
+                    if updated!=config:
+                        _save_scene(config,config_id,updated)
                         st.rerun()
                 else:
-                    parsed = parse_canvas(canvas.json_data.get('objects', []), building.get('fixed_objects', []),
-                                          boundary, canvas_width, canvas_height, selected_type, wall_left, wall_right)
-                    if signature(parsed) != signature(building.get('fixed_objects', [])):
-                        save_structures(config, config_id, parsed)
+                    allowed=set(identity_colors(building.get('fixed_objects',[])).values())|{stroke_color}
+                    raw=[o for o in canvas.json_data.get('objects',[]) if o.get('stroke') in allowed]
+                    parsed=parse_canvas(raw,building.get('fixed_objects',[]),boundary,canvas_width,canvas_height,selected_type,wall_left,wall_right)
+                    if signature(parsed)!=signature(building.get('fixed_objects',[])):
+                        save_structures(config,config_id,parsed)
                         st.rerun()
             except (ValueError, TypeError, KeyError) as exc:
                 st.error(f'画布修改未同步：{exc}')
@@ -458,34 +587,7 @@ def render_adaptive_reuse_config_page(config: dict, config_id: str) -> None:
         environment["success_patience"] = int(st.number_input("连续满足步数", 1, value=int(environment.get("success_patience", 8)), key=f"{config_id}_ar_patience"))
         environment["randomize_initial"] = st.checkbox("训练时随机扰动初始位置", value=bool(environment.get("randomize_initial", True)), key=f"{config_id}_ar_random")
 
-    _render_plan_constraint_editor(config, config_id)
-
-    st.markdown("### 目标功能空间智能体")
-    st.caption("每一行是一个独立智能体；initial_rect 是其从既有平面出发的初始状态。")
-    target_df = st.data_editor(
-        pd.DataFrame(_target_records(config.get("TargetSpaces", []))),
-        num_rows="dynamic", use_container_width=True, key=f"{config_id}_ar_targets_{REFERENCE_PLAN_UI_VERSION}",
-    )
-    config["TargetSpaces"] = _records_to_targets(target_df,config.get('TargetSpaces',[]))
-    seed_valid=True
-    if seed_mode:
-        from gui.seed_page import render_seed_settings
-        seed_valid=render_seed_settings(config,config_id)
-
-    st.markdown("### 功能关系")
-    relation_df = st.data_editor(
-        pd.DataFrame(config.get("FunctionalRelations", []), columns=["from", "to", "type","min_shared_length","min_clear_width","min_distance"]),
-        num_rows="dynamic", use_container_width=True, key=f"{config_id}_ar_relations_{REFERENCE_PLAN_UI_VERSION}",
-        column_config={"type": st.column_config.SelectboxColumn("type", options=["adjacent", "separate","connected","via_circulation"]),
-                       **{k:st.column_config.NumberColumn(k,min_value=.001) for k in ('min_shared_length','min_clear_width','min_distance')}},
-    )
-    config["FunctionalRelations"] = [
-        {"from": str(row["from"]).strip(), "to": str(row["to"]).strip(), "type": str(row["type"]),
-         **{k:float(row[k]) for k in ('min_shared_length','min_clear_width','min_distance') if pd.notna(row.get(k))}}
-        for row in relation_df.to_dict("records")
-        if str(_clean(row.get("from"))).strip() and str(_clean(row.get("to"))).strip()
-    ]
-    st.caption('from / to 是稳定的图节点 ID；移动种子不会更改关系。adjacent=实际共边，connected=开口连通，via_circulation=经交通空间连通，separate=分离；连通仍需门/通路证明。')
+    seed_valid = _render_plan_constraint_editor(config, config_id) is not False
 
     st.markdown("### 奖励权重")
     st.caption("这里只保留论文方法对应的基础奖励项，不设“额外奖励”分组。")

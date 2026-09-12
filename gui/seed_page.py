@@ -47,7 +47,7 @@ def render_seed_settings(config,config_id):
     with st.expander('图节点种子与轮廓规则',expanded=True):
         st.caption('节点 ID 与上方房间 ID 相同；坐标可以移动，目标关系不会重新配对。留空最小净宽时，非矩形使用相对净宽过滤。')
         frame=st.data_editor(pd.DataFrame(seed_rows(config['TargetSpaces'])),disabled=['node_id'],
-            hide_index=True,key=f'{config_id}_seeds_v2',
+            hide_index=True,key=f"{config_id}_seeds_v2_{st.session_state.get(f'{config_id}_ar_canvas_revision',0)}",
             column_config={'shape_policy':st.column_config.SelectboxColumn('轮廓规则',options=['regular','limited_recess']),
                            'min_width':st.column_config.NumberColumn('最小净宽（m）',min_value=.01)})
         limits=st.text_area('轮廓约束参数（YAML，按节点 ID）',value=yaml.safe_dump(

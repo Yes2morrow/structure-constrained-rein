@@ -38,6 +38,8 @@ class SeedUITest(unittest.TestCase):
 
     def test_streamlit_save_preserves_seeds_and_relation_thresholds(self):
         state=copy.deepcopy(load_config('retrofit'))
+        # This checks UI field preservation, independent of the user's live annotations.
+        state['ExistingBuilding']['fixed_objects']=[]
         state['SeedGrowth']={'enabled':True}
         state['TargetSpaces'][0].update(seed=[15,14.5],min_width=1.2,shape_policy='limited_recess',shape_limits={'max_reflex':2})
         state['FunctionalRelations'][0].update(min_shared_length=1.5,min_clear_width=.9)
@@ -55,7 +57,7 @@ render_adaptive_reuse_config_page(load_config('retrofit'),'retrofit')
             self.assertFalse(app.exception,app.exception)
             next(b for b in app.button if b.label=='保存既有建筑环境').click().run()
             self.assertFalse(app.exception,app.exception)
-            self.assertFalse(app.error,app.error)
+            self.assertFalse(app.error,[e.value for e in app.error])
         self.assertEqual(state['TargetSpaces'][0]['seed'],[15.,14.5])
         self.assertEqual(state['TargetSpaces'][0]['shape_limits'],{'max_reflex':2})
         self.assertEqual(state['FunctionalRelations'][0]['min_shared_length'],1.5)

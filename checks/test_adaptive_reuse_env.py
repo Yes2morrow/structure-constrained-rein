@@ -5,7 +5,8 @@ import unittest
 
 import numpy as np
 
-from core.envs import make_adaptive_reuse_env
+from core.envs import AdaptiveReuseEnv
+from gui.config_store import load_config
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -14,7 +15,12 @@ CONFIG_PATH = PROJECT_ROOT / "config" / "retrofit" / "config.yaml"
 
 class AdaptiveReuseEnvTest(unittest.TestCase):
     def setUp(self):
-        self.env, _ = make_adaptive_reuse_env(CONFIG_PATH)
+        import yaml
+        config=yaml.safe_load((PROJECT_ROOT/'checks/fixtures/retrofit.yaml').read_text(encoding='utf-8'))
+        # Stable smoke fixture: user-drawn obstacles may intentionally overlap a
+        # starting room while the environment is being edited.
+        config['ExistingBuilding']['fixed_objects']=[dict(id='fixture_column',type='column',rect=[.1,.1,.5,.5])]
+        self.env=AdaptiveReuseEnv(config)
 
     def test_reset_exposes_multi_agent_state_and_grid(self):
         state, info = self.env.reset(seed=42)
