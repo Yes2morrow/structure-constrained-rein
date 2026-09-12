@@ -16,7 +16,7 @@ import streamlit as st
 import yaml
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 try:
-    from streamlit_drawable_canvas import st_canvas
+    from gui.responsive_canvas import st_canvas
 except ImportError:
     st_canvas = None
 
@@ -393,8 +393,9 @@ def _render_plan_constraint_editor(config: dict, config_id: str) -> None:
     st.markdown("### 二维原始平面与前期约束标注")
     st.caption('参数表与画布共用一份构件数据。有效修改自动保存到 YAML 并双向同步；新增表格行请先补全必填数据。')
 
-    upload_col, type_col = st.columns([1.35, 1])
-    with upload_col:
+    upload_col = st.container()
+    type_col = st.container()
+    with upload_col, st.expander("平面底图（可选）", expanded=False):
         uploaded = st.file_uploader(
             "上传原始建筑平面图", type=["png", "jpg", "jpeg", "webp"],
             key=f"{config_id}_ar_plan_upload_{REFERENCE_PLAN_UI_VERSION}",
@@ -423,50 +424,50 @@ def _render_plan_constraint_editor(config: dict, config_id: str) -> None:
         else:
             st.caption("当前底图：系统根据原堂屋及各原有房间自动生成的二维平面")
     with type_col:
+        tools_row=st.columns(4)
         type_options = [k for k in CONSTRAINT_STYLES if k != 'core']
-        selected_type = st.selectbox(
+        selected_type = tools_row[0].selectbox(
             "当前标注类型", type_options,
             format_func=lambda key: CONSTRAINT_STYLES[key][0],
             key=f"{config_id}_ar_constraint_type",
         )
-        operation_mode = st.radio(
+        operation_mode = tools_row[1].radio(
             "画布操作", ["统一点编辑", "绘制约束", "选择/调整", "调整建筑边界"], horizontal=True,
             key=f"{config_id}_ar_canvas_mode",
         )
         layers={'全部对象':'all','建筑边界':'boundary','原有房间':'original','智能体初始区域':'agent','智能体种子':'seed','柱':'column','墙线与左右厚度':'wall','其他矩形构件':'fixed_rect','其他多边形构件':'fixed','门位置':'door'}
-        layer=layers[st.selectbox('编辑图层（控制可选点）',list(layers),key=f'{config_id}_environment_layer')]
+        layer=layers[tools_row[2].selectbox('编辑图层（控制可选点）',list(layers),key=f'{config_id}_environment_layer')]
         entries=environment_controls(config)
         ids=sorted({k[1] for k in entries if layer=='all' or k[0]==layer})
-        object_id=st.selectbox('编辑对象 ID（重叠时用于选取）',['全部']+ids,key=f'{config_id}_environment_object')
+        object_id=tools_row[3].selectbox('编辑对象 ID（重叠时用于选取）',['全部']+ids,key=f'{config_id}_environment_object')
         object_id=None if object_id=='全部' else object_id
         wall_left, wall_right = .12, .12
         if selected_type in ('shear_wall', 'load_bearing_wall'):
             wall_left = st.number_input('新墙左侧厚度（m）', min_value=0.0, value=.12, step=.01, key=f'{config_id}_new_wall_left')
             wall_right = st.number_input('新墙右侧厚度（m）', min_value=0.0, value=.12, step=.01, key=f'{config_id}_new_wall_right')
             st.caption('拖出墙线的起点与终点；左右按拖动方向定义。调整模式可移动、旋转、沿长度或厚度缩放。')
-        editing_label = '正在标注：'+CONSTRAINT_STYLES[selected_type][0] if operation_mode=='绘制约束' else '正在编辑：'+('全部对象' if layer=='all' else next(k for k,v in layers.items() if v==layer))
-        st.markdown(
-            f"<div style='padding:8px 10px;border-left:8px solid {CONSTRAINT_STYLES[selected_type][2]};"
-            f"background:#f5f7fa;border-radius:4px;'><b>{editing_label}</b></div>",
-            unsafe_allow_html=True,
-        )
-
     canvas_column, parameters_column = st.columns([1.05, 1], gap="medium")
-    with parameters_column:
-        with st.expander('图层显示与透明度', expanded=True):
-            st.caption('勾选显示；透明度 0 为原始着色，100 为全透明。隐藏不会删除数据。')
-            rows=[{'类别':label,'显示':True,'透明度':0} for key,label in DISPLAY_LAYERS.items()]
-            rows += [{'类别':'对象名称','显示':True,'透明度':0},{'类别':'上传的平面底图','显示':True,'透明度':0}]
-            view=st.data_editor(pd.DataFrame(rows),hide_index=True,disabled=['类别'],
-                column_config={'显示':st.column_config.CheckboxColumn('显示'),'透明度':st.column_config.NumberColumn('透明度 %',min_value=0,max_value=100,step=5)},
-                key=f'{config_id}_environment_display',use_container_width=True)
-            display={key:(bool(row['显示']),float(row['透明度'] or 0)) for key,row in zip(list(DISPLAY_LAYERS)+['labels','background'],view.to_dict('records'))}
-            st.caption('上传图片中的内容属于底图像素，可整体隐藏；各类环境对象可独立隐藏。')
-        inputs_valid = _render_residential_inputs(config, config_id)
-        editor_valid = render_structure_editor(config, config_id) and inputs_valid
+    with parameters_column, st.container(height=620, border=False):
+        panel_tabs=st.tabs(['显示','原房间','边界与结构','智能体与关系','控制点'])
+        with panel_tabs[0]:
+            with st.expander('图层显示与透明度', expanded=True):
+                st.caption('勾选显示；透明度 0 为原始着色，100 为全透明。隐藏不会删除数据。')
+                rows=[{'类别':label,'显示':True,'透明度':0} for key,label in DISPLAY_LAYERS.items()]
+                rows += [{'类别':'对象名称','显示':True,'透明度':0},{'类别':'上传的平面底图','显示':True,'透明度':0}]
+                view=st.data_editor(pd.DataFrame(rows),hide_index=True,disabled=['类别'],
+                    column_config={'显示':st.column_config.CheckboxColumn('显示'),'透明度':st.column_config.NumberColumn('透明度 %',min_value=0,max_value=100,step=5)},
+                    key=f'{config_id}_environment_display',use_container_width=True)
+                display={key:(bool(row['显示']),float(row['透明度'] or 0)) for key,row in zip(list(DISPLAY_LAYERS)+['labels','background'],view.to_dict('records'))}
+                st.caption('上传图片中的内容属于底图像素，可整体隐藏；各类环境对象可独立隐藏。')
+        with panel_tabs[1]:
+            inputs_valid = _render_residential_inputs(config, config_id)
+        with panel_tabs[2]:
+            editor_valid = render_structure_editor(config, config_id) and inputs_valid
         try:
-            editor_valid = _render_target_editor(config, config_id) and editor_valid
-            editor_valid = _render_all_points(config,config_id) and editor_valid
+            with panel_tabs[3]:
+                editor_valid = _render_target_editor(config, config_id) and editor_valid
+            with panel_tabs[4]:
+                editor_valid = _render_all_points(config,config_id) and editor_valid
         except (ValueError,TypeError,KeyError) as exc:
             st.error(f"智能体数据未保存：{exc}")
             editor_valid=False

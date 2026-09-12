@@ -344,3 +344,9 @@ checks 已分类：test_*.py 留在根部；smoke/ 为独立验证，benchmarks/
 - [x] 91 项回归：88 通过，3 个旧住宅配置测试跳过。稳定测试 fixture 防止用户实时编辑改变测试基线。新增隐藏图层保留几何/图关系及独立种子编辑回归。
 - [x] Playwright 1920×1200 浏览器检查画布完整性、右侧图层表以及关闭智能体区域后保留原房间/种子。截图 output/playwright/unified-layer-display.png 与 unified-agent-hidden.png。浏览器另有预览图片 media 404（非此画布，画布使用内嵌 PNG）；未将其宣称已修复。
 - 本检查点未改训练/生长算法，先前 CP6 邻接收敛事项仍未完成；用户当前 retrofit 配置修改未纳入此代码提交。
+
+### 自适应排版检查点（2026-09-12）
+- [x] 右侧改为五个页签及限高滚动面板，避免全部参数纵向堆叠撑出大片左侧空白。底图上传折叠，编辑工具横向排列，删除正在标注提示条。
+- [x] 新增 responsive_canvas 本地适配器：运行时复制已安装组件构建到 runtime，不修改第三方安装；iframe 内按容器宽度缩放画布和工具栏，并同步外框高度。序列化世界坐标保持不变。
+- [x] Playwright 检查 1440 与 3840 宽度下完整边界；10 项环境画布/边界同步回归通过。截图 output/playwright/responsive-final.png、responsive-wide.png。
+- [x] 重启本次 8521 预览加载新代码。
