@@ -42,6 +42,14 @@ def main():
     args = parse_args()
     matplotlib.use("Agg", force=True)
     config_path = args.config or Path(get_config_path(args.config_id))
+    import yaml
+    selected=yaml.safe_load(config_path.read_text(encoding='utf-8'))
+    if str(selected.get('Training',{}).get('training_stage','room_training')).strip() == 'floor_partition':
+        from scripts.train_floor_partition import main as floor_main
+        return floor_main()
+    if any(r.get('role')=='residual' for r in selected.get('TargetSpaces',[])):
+        from scripts.train_seed_layout import main as seed_main
+        return seed_main()
     env, config = make_adaptive_reuse_env(config_path)
     training = config["Training"]
     episodes = args.episodes if args.episodes is not None else int(training.get("episodes", 1000))

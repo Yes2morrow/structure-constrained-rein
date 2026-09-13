@@ -28,6 +28,16 @@ def column(identifier, cx, cy, width, depth):
                 rect=[cx-width/2, cy-depth/2, cx+width/2, cy+depth/2], parametric=True)
 
 
+def zone(identifier, kind, x1, y1, x2, y2):
+    """显式保留区/交通核使用矩形主数据，统一参与硬约束。"""
+    x1, y1, x2, y2 = _numbers([x1, y1, x2, y2])
+    if kind not in ('traffic_core', 'retained_circulation', 'fixed'):
+        raise ValueError('区域类型只能是交通核区域、保留交通空间或其他固定构件')
+    if x2 <= x1 or y2 <= y1:
+        raise ValueError('区域矩形必须满足 x2 > x1 且 y2 > y1')
+    return dict(id=identifier, type=kind, rect=[x1, y1, x2, y2], parametric=True)
+
+
 def wall(identifier, kind, sx, sy, ex, ey, left, right):
     sx, sy, ex, ey, left, right = _numbers([sx, sy, ex, ey, left, right])
     length = math.hypot(ex-sx, ey-sy)
@@ -56,7 +66,7 @@ def detect_cores(walls):
 
 
 def parameter_rows(items):
-    columns, walls, other = [], [], []
+    columns, walls, zones, other = [], [], [], []
     for item in items:
         if item.get('derived'):
             continue
@@ -73,16 +83,23 @@ def parameter_rows(items):
             half = (y2-y1 if horizontal else x2-x1)/2
             walls.append(dict(id=item['id'], type=kind, sx=start[0], sy=start[1], ex=end[0], ey=end[1],
                               left=item.get('left_thickness', half), right=item.get('right_thickness', half)))
+        elif kind in ('traffic_core', 'retained_circulation', 'fixed') and 'polygon' not in item:
+            zones.append(dict(id=item['id'], type=kind, x1=x1, y1=y1, x2=x2, y2=y2))
+        elif kind == 'core' and not item.get('derived') and 'polygon' not in item:
+            # 兼容之前把“交通核区域”误存成 core 的旧配置，自动迁移。
+            zones.append(dict(id=item['id'], type='traffic_core', x1=x1, y1=y1, x2=x2, y2=y2))
         else:
             other.append(item)
-    return columns, walls, other
+    return columns, walls, zones, other
 
 
-def build_structures(columns, walls, other):
+def build_structures(columns, walls, zones, other):
     result = list(other)
     result += [column(r['id'], r['cx'], r['cy'], r['width'], r['depth']) for r in columns]
     wall_items = [wall(r['id'], r['type'], r['sx'], r['sy'], r['ex'], r['ey'], r['left'], r['right']) for r in walls]
-    result += wall_items + detect_cores(wall_items)
+    result += wall_items
+    result += [zone(r['id'], r['type'], r['x1'], r['y1'], r['x2'], r['y2']) for r in zones]
+    result += detect_cores(wall_items)
     if any(not isinstance(i['id'], str) for i in result):
         raise ValueError('每行必须填写文本形式的构件 ID')
     identifiers = [i['id'].strip() for i in result]

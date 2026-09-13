@@ -5,6 +5,8 @@ clips complete edges against full-thickness geometry, never rasterized obstacles
 This bounded heuristic may stall on feasible problems; it does not prove infeasibility.
 """
 import math
+from dataclasses import replace
+from shapely.ops import unary_union
 from shapely.geometry import Point, box
 
 from .validation import validate_layout
@@ -127,6 +129,21 @@ def decode_layout(problem, snapshot, step=None, max_rounds=2000, retreat_passes=
     reported as such. Structural collisions are never repaired by clipping away
     pieces, which would incorrectly introduce CP4 notches or disconnected rooms.
     """
+    if problem.residual_room:
+        from .graph_partition import fit_graph_faces
+        active_ids = {r.id for r in problem.active_rooms}
+        reserved = unary_union([problem.fixed,problem.entrance_clearance])
+        private_problem = replace(problem,rooms=problem.active_rooms,
+            relations=tuple(e for e in problem.relations if e.source in active_ids and e.target in active_ids),
+            fixed=reserved,free_space=problem.boundary.difference(reserved))
+        result = decode_layout(private_problem,snapshot,step,max_rounds,retreat_passes,refine)
+        polygons,records = fit_graph_faces(problem,dict(snapshot.seeds),result['polygons'])
+        report = validate_layout(problem,dict(snapshot.seeds),polygons)
+        result.update(polygons=polygons,validation=report,graph_fitting=records,
+            decoder_version='graph_faces_residual_v1',
+            limitations=['bounded_heuristic_not_feasibility_proof','no_interior_door_or_corridor_proof'],
+            status='valid' if report['geometry_valid'] and report['relations_satisfied'] else 'unresolved')
+        return result
     seeds = dict(snapshot.seeds)
     problem.validate_seeds(seeds)
     step = problem.grid_size if step is None else float(step)
@@ -160,6 +177,9 @@ def decode_layout(problem, snapshot, step=None, max_rounds=2000, retreat_passes=
             break
         _,polygons,report = best
         accepted += 1
+    from .graph_partition import fit_graph_faces
+    polygons,graph_fitting = fit_graph_faces(problem,seeds,polygons)
+    report = validate_layout(problem,seeds,polygons)
     refinement = []
     if refine:
         from .edge_growth import refine_layout
@@ -169,6 +189,6 @@ def decode_layout(problem, snapshot, step=None, max_rounds=2000, retreat_passes=
                 polygons=polygons, validation=report, selected_phase=phase, rounds=rounds,
                 status='valid' if report['geometry_valid'] and report['relations_satisfied'] else 'unresolved',
                 retreat_attempts=attempted, retreat_accepted=accepted,
-                refinement=refinement,
+                refinement=refinement,graph_fitting=graph_fitting,
                 limitations=([] if refine else ['rectangles_only'])+['bounded_heuristic_not_feasibility_proof', 'no_door_or_corridor_proof'],
                 trials=[dict(phase=t[1], score=list(t[0]), rounds=t[4]) for t in trials])

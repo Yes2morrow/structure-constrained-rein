@@ -2,9 +2,9 @@ import copy
 import unittest
 from gui.environment_canvas import controls,scene,parse_scene,color
 from gui.structure_canvas import viewport
-from gui.adaptive_reuse_page import CONSTRAINT_STYLES
+from gui.adaptive_reuse_page import CONSTRAINT_STYLES, _auto_repair_targets_config
 from gui.config_store import load_config
-from core.envs.structure_geometry import column,wall
+from core.envs.structure_geometry import column,wall,zone
 
 
 class EnvironmentCanvasTest(unittest.TestCase):
@@ -12,7 +12,7 @@ class EnvironmentCanvasTest(unittest.TestCase):
         import yaml
         from pathlib import Path
         self.c=yaml.safe_load((Path(__file__).parent/'fixtures/retrofit.yaml').read_text(encoding='utf-8'))
-        self.c['ExistingBuilding']['fixed_objects']=[column('c',5,5,.4,.6),wall('w','shear_wall',10,5,16,8,.2,.1)]
+        self.c['ExistingBuilding']['fixed_objects']=[column('c',5,5,.4,.6),wall('w','shear_wall',10,5,16,8,.2,.1),zone('traffic_1','traffic_core',18,4,22,8)]
         self.c['TargetSpaces'][0]['seed']=[14,14]
         self.w,self.h=760,480
 
@@ -26,7 +26,7 @@ class EnvironmentCanvasTest(unittest.TestCase):
     def test_complete_scene_and_lossless_initial_load(self):
         objects=scene(self.c,self.w,self.h,CONSTRAINT_STYLES)
         self.assertEqual(parse_scene(objects,self.c,self.w,self.h),self.c)
-        self.assertEqual({k[0] for k in controls(self.c)}, {'boundary','original','agent','seed','column','wall','door'})
+        self.assertEqual({k[0] for k in controls(self.c)}, {'boundary','original','agent','seed','column','wall','fixed_rect','door'})
         self.assertEqual(sum(o.get('fill')=='rgba(66,165,245,0.30)' for o in objects),len(self.c['TargetSpaces']))
         for o in objects:
             if o['type']=='circle':
@@ -68,8 +68,16 @@ class EnvironmentCanvasTest(unittest.TestCase):
         self.assertEqual(updated['FunctionalRelations'],self.c['FunctionalRelations'])
         self.assertEqual(updated['ExistingBuilding'],self.c['ExistingBuilding'])
         seeded=self.move(('seed',key,'point'),.5,0)
-        self.assertEqual(seeded['TargetSpaces'][0]['initial_rect'],self.c['TargetSpaces'][0]['initial_rect'])
+        original_rect=self.c['TargetSpaces'][0]['initial_rect']
+        self.assertEqual(seeded['TargetSpaces'][0]['initial_rect'],[original_rect[0]+.5,original_rect[1],original_rect[2]+.5,original_rect[3]])
         self.assertEqual(seeded['TargetSpaces'][0]['seed'],[14.5,14])
+
+    def test_auto_repair_helper_handles_traffic_core(self):
+        repaired, repairs, info = _auto_repair_targets_config(self.c, 42)
+        self.assertTrue(repairs)
+        self.assertTrue(info['initial_repairs'])
+        self.assertEqual({item['space_id'] for item in repairs}, {item['space_id'] for item in info['initial_repairs']})
+        self.assertEqual(next(item for item in repaired['ExistingBuilding']['fixed_objects'] if item['id']=='traffic_1')['type'],'traffic_core')
 
     def test_column_and_wall_parameters(self):
         updated=self.move(('column','c','ne'),.2,.1)
@@ -82,6 +90,12 @@ class EnvironmentCanvasTest(unittest.TestCase):
         updated=self.move(('wall','w','left'),-.1,.2)
         self.assertGreater(updated['ExistingBuilding']['fixed_objects'][1]['left_thickness'],.2)
         self.assertEqual(updated['ExistingBuilding']['fixed_objects'][1]['right_thickness'],.1)
+
+    def test_traffic_core_rectangle_moves_as_fixed_zone(self):
+        updated=self.move(('fixed_rect','traffic_1','center'),1,.5)
+        core=next(item for item in updated['ExistingBuilding']['fixed_objects'] if item['id']=='traffic_1')
+        self.assertEqual(core['type'],'traffic_core')
+        self.assertEqual(core['rect'],[19,4.5,23,8.5])
 
     def test_corner_crossing_rejected(self):
         with self.assertRaises(ValueError): self.move(('column','c','ne'),-10,0)

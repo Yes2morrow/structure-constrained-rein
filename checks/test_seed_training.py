@@ -159,13 +159,21 @@ class ArtifactTest(unittest.TestCase):
         flag.write_text('pid=-999\n')
         self.assertFalse(stop_requested(flag))
 
-    def test_actual_case_false_adjacency_is_explicit(self):
+    def test_actual_case_graph_fit_removes_the_previous_false_adjacency(self):
         baseline=Path(__file__).parent/'evidence/seed_geometry_baseline.json'
         c=json.loads(baseline.read_text(encoding='utf-8'))['config_snapshot']
         env=SeedLayoutEnv(c); result=decode_layout(env.problem,env.snapshot(0))
         report=compare_proxy(env.problem,env.estimate,result['validation'])
         dining=next(r for r in report['relations'] if r['source']=='dining' and r['target']=='kitchen')
-        self.assertTrue(dining['false_positive'])
+        self.assertTrue(dining['precise_satisfied'])
+        self.assertFalse(dining['false_positive'])
+        # A failed precise check must still remain visibly different from a
+        # successful proxy estimate, regardless of decoder improvements.
+        failed=copy.deepcopy(result['validation'])
+        edge=next(r for r in failed['relations'] if r['source']=='dining' and r['target']=='kitchen')
+        edge['satisfied']=False; edge['shared_length']=0.
+        comparison=compare_proxy(env.problem,env.estimate,failed)
+        self.assertTrue(next(r for r in comparison['relations'] if r['source']=='dining' and r['target']=='kitchen')['false_positive'])
 
 
 class RunnerTest(unittest.TestCase):
@@ -245,7 +253,8 @@ class RunnerTest(unittest.TestCase):
     def test_old_rectangle_entry_honors_stop_at_episode_boundary(self):
         from argparse import Namespace
         from scripts import train_adaptive_reuse as old
-        source=self.root/'config.yaml'; source.write_text('test config')
+        import yaml
+        source=self.root/'config.yaml'; source.write_text(yaml.safe_dump(self.c))
         env=MagicMock(); env.num_agents=2
         env.calculate_metrics.return_value={k:1. for k in ('area_compliance','shape_compliance','adjacency_score',
             'original_reuse','intervention_ratio','hard_conflicts')}

@@ -14,6 +14,7 @@ from .geometry import decode_layout
 from .proxy import LayoutProxy
 from .validation import validate_layout
 from .shape_rules import polygon_parts
+from .objectives import precise_retrofit_metrics
 
 
 def config_key(config):
@@ -87,8 +88,14 @@ def layout_svg(problem, snapshot, polygons, status):
     palette=['#90caf9','#a5d6a7','#ffcc80','#ce93d8','#80cbc4','#ef9a9a']
     for i,(key,p) in enumerate(polygons.items()):
         draw(p,palette[i%len(palette)])
-        x,y=dict(snapshot.seeds)[key]
-        parts.append(f'<circle cx="{x}" cy="{-y}" r="0.08" fill="#111"/><text x="{x+.1}" y="{-y}" font-size="0.25">{escape(key)}</text>')
+        point=p.representative_point()
+        x,y=dict(snapshot.seeds).get(key,(point.x,point.y))
+        if key in dict(snapshot.seeds):
+            parts.append(f'<circle cx="{x}" cy="{-y}" r="0.08" fill="#111"/>')
+        parts.append(f'<text x="{x+.1}" y="{-y}" font-size="0.25">{escape(key)}</text>')
+    if problem.entrance is not None:
+        points=' '.join(f'{x},{-y}' for x,y in problem.entrance.coords)
+        parts.append(f'<polyline points="{points}" fill="none" stroke="#00897b" stroke-width="0.12"/>')
     draw(problem.fixed,'#455a64')
     parts.append(f'<text x="{x0}" y="{-y1-.7}" font-size="0.35">Precise: {status}; episodes={snapshot.completed_episodes}, step={snapshot.step}</text></svg>')
     return '\n'.join(parts)
@@ -166,6 +173,7 @@ class RunArtifacts:
             decoded=self.decoder(self.problem,snapshot)
             polygons=decoded.pop('polygons')
             report=validate_layout(self.problem,dict(snapshot.seeds),polygons)
+            report['retrofit']=precise_retrofit_metrics(self.config,polygons)
             decoded['validation']=report
             decoded['status']='valid' if report['geometry_valid'] and report['relations_satisfied'] else 'unresolved'
             decoded.update(config_key=self.fingerprint,snapshot_key=snapshot.key,trigger=reason,

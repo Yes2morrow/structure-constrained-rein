@@ -8,6 +8,18 @@ from common.config_manager import get_available_config_ids
 from gui.training_service import start_training, stop_training
 
 
+def _training_stage_label(config: dict, config_id: str) -> str:
+    """返回当前训练阶段标签。"""
+    training = config.get("Training", {})
+    stage = str(st.session_state.get(f"{config_id}_training_stage", training.get("training_stage", "room_training"))).strip()
+    if stage == "floor_partition":
+        program = str(st.session_state.get(f"{config_id}_floor_partition_type", config.get("FloorPartition", {}).get("program_type", "residential"))).strip()
+        if program == "office":
+            return "楼层功能分区（办公）"
+        return "楼层功能分区（住宅）"
+    return "户型内部训练"
+
+
 def render_training_status_indicator(status_text: str, training_pid) -> None:
     """渲染训练状态灯与 PID。"""
     is_running = status_text in {"Running", "Stopping"}
@@ -97,63 +109,55 @@ def render_sidebar_controls(config: dict, config_id: str) -> None:
         st.markdown("## 训练控制")
         status_text = st.session_state.training_status
         training_pid = st.session_state.training_pid
+        stage_label = _training_stage_label(config, config_id)
         render_training_status_indicator(status_text, training_pid)
         st.metric("运行状态", status_text)
         st.caption(f"算法类型: {config.get('Training', {}).get('agent_name', 'mappo')}")
+        st.caption(f"当前训练阶段: {stage_label}")
         st.caption(f"续训模型目录: {config.get('Training', {}).get('ckpt_path', '') or '未设置（新训练无需设置）'}")
-        st.caption("继续训练会恢复历史轮次；旧模新训会加载权重后新开结果目录。")
+        st.caption("继续训练会恢复历史轮次与监控计数。")
         action_message = None
         action_message_type = None
 
-        if st.button("新训练", use_container_width=True, disabled=status_text == "Running"):
+        if st.button(f"新训练（{stage_label}）", use_container_width=True, disabled=status_text == "Running"):
             training_conf = config.setdefault("Training", {})
             training_conf["ckpt_path"] = ""
             training_conf["resume_mode"] = "fresh"
             save_config(config, config_id)
             success, message = start_training(config_id)
-            action_message = "已按新训练模式启动：不会读取任何预训练模型。"
+            if success:
+                st.session_state.main_view = "训练监控"
+                st.session_state.main_view_selector = "训练监控"
+            action_message = f"已按新训练模式启动：{stage_label} 不会读取任何预训练模型。"
             action_message_type = "info"
             if message:
                 action_message = f"{action_message}\n\n{message}"
                 action_message_type = "success" if success else "error"
+            if success:
+                st.rerun()
 
         ckpt_path = config.get("Training", {}).get("ckpt_path", "")
-        resume_col1, resume_col2 = st.columns(2)
-        with resume_col1:
-            if st.button("继续训练", use_container_width=True, disabled=status_text == "Running"):
-                if not ckpt_path:
-                    action_message = "当前配置未设置续训模型目录，请先在参数配置页填写并保存。"
-                    action_message_type = "error"
-                elif not os.path.isdir(ckpt_path):
-                    action_message = "当前续训模型目录不是有效目录，请检查配置文件中的路径。"
-                    action_message_type = "error"
-                else:
-                    config.setdefault("Training", {})["resume_mode"] = "resume"
-                    save_config(config, config_id)
-                    success, message = start_training(config_id)
-                    action_message = "将从检查点恢复历史轮次、训练状态和监控计数继续训练。"
-                    action_message_type = "info"
-                    if message:
-                        action_message = f"{action_message}\n\n{message}"
-                        action_message_type = "success" if success else "error"
-
-        with resume_col2:
-            if st.button("旧模新训", use_container_width=True, disabled=status_text == "Running"):
-                if not ckpt_path:
-                    action_message = "当前配置未设置续训模型目录，请先在参数配置页填写并保存。"
-                    action_message_type = "error"
-                elif not os.path.isdir(ckpt_path):
-                    action_message = "当前续训模型目录不是有效目录，请检查配置文件中的路径。"
-                    action_message_type = "error"
-                else:
-                    config.setdefault("Training", {})["resume_mode"] = "new_from_model"
-                    save_config(config, config_id)
-                    success, message = start_training(config_id)
-                    action_message = "将读取该模型权重，但会新建结果目录并从第 1 轮重新计数。"
-                    action_message_type = "info"
-                    if message:
-                        action_message = f"{action_message}\n\n{message}"
-                        action_message_type = "success" if success else "error"
+        if st.button(f"继续训练（{stage_label}）", use_container_width=True, disabled=status_text == "Running"):
+            if not ckpt_path:
+                action_message = "当前配置未设置续训模型目录，请先在参数配置页填写并保存。"
+                action_message_type = "error"
+            elif not os.path.isdir(ckpt_path):
+                action_message = "当前续训模型目录不是有效目录，请检查配置文件中的路径。"
+                action_message_type = "error"
+            else:
+                config.setdefault("Training", {})["resume_mode"] = "resume"
+                save_config(config, config_id)
+                success, message = start_training(config_id)
+                if success:
+                    st.session_state.main_view = "训练监控"
+                    st.session_state.main_view_selector = "训练监控"
+                action_message = f"将从检查点恢复 {stage_label} 的历史轮次、训练状态和监控计数继续训练。"
+                action_message_type = "info"
+                if message:
+                    action_message = f"{action_message}\n\n{message}"
+                    action_message_type = "success" if success else "error"
+                if success:
+                    st.rerun()
 
         if action_message:
             if action_message_type == "success":

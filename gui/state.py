@@ -36,6 +36,9 @@ def init_session_state(is_process_running) -> None:
     if "tensorboard_logdir" not in st.session_state:
         st.session_state.tensorboard_logdir = ""
 
+    if "main_view" not in st.session_state:
+        st.session_state.main_view = "参数配置"
+
     if os.path.exists(PID_FILE):
         try:
             with open(PID_FILE, "r", encoding="utf-8") as file:

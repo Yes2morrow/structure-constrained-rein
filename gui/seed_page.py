@@ -1,4 +1,4 @@
-"""Experimental graph-seed controls and read-only saved precise output."""
+"""Rectangular retrofit acceleration controls and read-only saved precise output."""
 from copy import deepcopy
 import json
 from pathlib import Path
@@ -21,6 +21,7 @@ from common.project_paths import RESULTS_DIR
 def seed_rows(rooms):
     rows=[]
     for room in rooms:
+        if room.get('role') == 'residual': continue
         rect=room.get('initial_rect',[0,0,1,1])
         x,y=room.get('seed',[(rect[0]+rect[2])/2,(rect[1]+rect[3])/2])
         rows.append(dict(node_id=room['id'],x=x,y=y,shape_policy=room.get('shape_policy','regular'),min_width=room.get('min_width')))
@@ -28,12 +29,13 @@ def seed_rows(rooms):
 
 
 def apply_seed_rows(rooms,rows,limits):
-    result=deepcopy(rooms); identifiers={r['id'] for r in result}
+    result=deepcopy(rooms); identifiers={r['id'] for r in result if r.get('role') != 'residual'}
     if not isinstance(limits,dict) or set(limits)-identifiers:
         raise ValueError('轮廓参数须按已有节点 ID 填写')
     values={r['node_id']:r for r in rows}
-    if set(values)!=identifiers or len(rows)!=len(result): raise ValueError('种子行必须与图节点一一对应')
+    if set(values)!=identifiers or len(rows)!=len(identifiers): raise ValueError('种子行必须与独立房间节点一一对应')
     for room in result:
+        if room.get('role') == 'residual': continue
         raw=values[room['id']]
         room.update(seed=[float(raw['x']),float(raw['y'])],shape_policy=raw['shape_policy'])
         if pd.notna(raw.get('min_width')): room['min_width']=float(raw['min_width'])
@@ -53,10 +55,14 @@ def render_seed_settings(config,config_id):
         limits=st.text_area('轮廓约束参数（YAML，按节点 ID）',value=yaml.safe_dump(
             {r['id']:r['shape_limits'] for r in config['TargetSpaces'] if 'shape_limits' in r},allow_unicode=True),key=f'{config_id}_shape_limits_v2')
         settings=config['SeedGrowth']
+        settings['fitting_area_tolerance']=float(st.slider('共边调整允许的目标面积偏差',0.,.5,float(settings.get('fitting_area_tolerance',.12)),.01,key=f'{config_id}_fitting_area_tol'))
+        if any(r.get('role')=='residual' for r in config['TargetSpaces']):
+            st.caption('客厅保留图节点，不设置种子、不创建独立策略；面积和轮廓由其他房间的剩余空间确定。')
+            settings['entrance_depth']=float(st.number_input('户门内侧客厅预留深度（m）',min_value=.1,value=float(settings.get('entrance_depth',.9)),step=.1,key=f'{config_id}_entrance_depth'))
         settings['grid_size']=float(st.number_input('种子代理网格（m）',min_value=.1,
             value=float(settings.get('grid_size',config['AdaptiveReuseEnvironment'].get('grid_size',.5))),step=.1,key=f'{config_id}_seed_grid'))
         settings['resume_run']=st.text_input('续训运行目录（留空则开始新训练）',value=settings.get('resume_run',''),key=f'{config_id}_seed_resume')
-        st.caption('续训沿用该目录保存的配置和节点 ID；训练轮数表示目标累计轮数。本页其他改动用于新训练。旧矩形模型不能直接续训种子模式。')
+        st.caption('续训沿用该目录保存的配置和节点 ID；训练轮数表示目标累计轮数。本页其他改动用于新训练。加速策略动作维度不同，矩形策略权重不能直接续训；原空间与初始矩形仍沿用同一份配置。')
         try:
             rooms=apply_seed_rows(config['TargetSpaces'],frame.to_dict('records'),yaml.safe_load(limits) or {})
             trial=dict(config,TargetSpaces=rooms)
@@ -81,7 +87,7 @@ def _draw(ax,geometry,color):
 @st.cache_data(max_entries=4,show_spinner=False)
 def _preview(config):
     env=SeedLayoutEnv(config)
-    return env.estimate,env.seeds,env.problem.boundary.bounds
+    return env.estimate,env.node_positions(),env.problem.boundary.bounds
 
 
 def render_seed_preview(config):
@@ -97,11 +103,15 @@ def render_seed_preview(config):
             a,b=seeds[edge.source],seeds[edge.target]
             ax.plot([a[0],b[0]],[a[1],b[1]],'--',color='#d84315' if edge.kind=='separate' else '#455a64',lw=1)
         for key,(x,y) in seeds.items():
-            ax.scatter(x,y,c='black',s=14); ax.annotate(key,(x,y),fontsize=8)
+            public=problem.residual_room and key==problem.residual_room.id
+            ax.scatter(x,y,c='#00897b' if public else 'black',marker='D' if public else 'o',s=24 if public else 14)
+            ax.annotate(key+' (region)' if public else key,(x,y),fontsize=8)
+        if problem.entrance is not None:
+            dx,dy=problem.entrance.xy; ax.plot(dx,dy,color='#00897b',lw=5,label='入口→客厅')
         _draw(ax,problem.fixed,'#455a64')
         x,y=problem.boundary.exterior.xy; ax.plot(x,y,color='black'); ax.set_aspect('equal')
         st.pyplot(fig); plt.close(fig)
-        st.caption('虚线是节点间的目标图关系，不表示房间已经共边；颜色区域只代表快速估算。')
+        st.caption('虚线是目标图关系，不表示已经共边；颜色区域只代表快速估算。绿色菱形是公共区域节点，黑点才是可移动种子。')
         st.dataframe(pd.DataFrame(estimate['relations']),hide_index=True)
     except Exception as exc:
         st.error(f'代理预览不可用：{exc}')
@@ -143,11 +153,19 @@ def render_seed_results(config_id):
         fig,ax=plt.subplots(figsize=(9,5))
         for i,(key,geometry) in enumerate(result['polygons'].items()):
             _draw(ax,shape(geometry),plt.get_cmap('Pastel1')(i%9))
-            x,y=snap['seeds'][key]; ax.scatter(x,y,c='black',s=14); ax.annotate(key,(x,y),fontsize=8)
+            point=shape(geometry).representative_point()
+            x,y=snap['seeds'].get(key,[point.x,point.y]); ax.annotate(key,(x,y),fontsize=8)
+            if key in snap['seeds']: ax.scatter(x,y,c='black',s=14)
+        if problem.entrance is not None:
+            dx,dy=problem.entrance.xy; ax.plot(dx,dy,color='#00897b',lw=5,label='入口→客厅')
         _draw(ax,problem.fixed,'#455a64')
         x,y=problem.boundary.exterior.xy; ax.plot(x,y,c='black'); ax.autoscale_view(); ax.set_aspect('equal')
         st.pyplot(fig); plt.close(fig)
         for error in result['validation']['errors']: st.error(error)
+        retrofit=result['validation'].get('retrofit')
+        if retrofit and retrofit['rooms']:
+            st.caption('精确成图相对原空间矩形的复用率与改造率（沿用基础方法口径）')
+            st.dataframe(pd.DataFrame(retrofit['rooms']),hide_index=True)
         st.dataframe(pd.DataFrame(result['validation']['relations']),hide_index=True)
         st.caption('satisfied=true：已验证；false：未满足；空值：尚无门或通路证据。')
         st.dataframe(pd.DataFrame(result['comparison']['relations']),hide_index=True)

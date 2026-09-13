@@ -24,6 +24,7 @@ def controls(config):
     for i,p in enumerate(b['boundary']): add('boundary',str(i),'point',p)
     for item in b.get('original_spaces',[]): rectangle('original',item['id'],item['rect'])
     for item in config.get('TargetSpaces',[]):
+        if item.get('role') == 'residual': continue
         rectangle('agent',item['id'],item['initial_rect'])
         r=item['initial_rect']; add('seed',item['id'],'point',item.get('seed',[(r[0]+r[2])/2,(r[1]+r[3])/2]))
     for item in b.get('fixed_objects',[]):
@@ -47,7 +48,7 @@ def color(key):
     return '#'+hashlib.sha256(repr(key).encode()).hexdigest()[:6]
 
 
-DISPLAY_LAYERS = {'boundary':'场地边界','original':'原有房间','agent':'智能体初始区域','seed':'智能体种子点','column':'柱','shear_wall':'剪力墙','load_bearing_wall':'承重墙','core':'核心筒','retained_circulation':'保留交通空间','fixed':'其他固定构件'}
+DISPLAY_LAYERS = {'boundary':'场地边界','original':'原有房间','agent':'智能体初始区域','seed':'智能体种子点','column':'柱','shear_wall':'剪力墙','load_bearing_wall':'承重墙','core':'核心筒','traffic_core':'交通核区域','retained_circulation':'保留交通空间','fixed':'其他固定构件'}
 
 
 def control_layer(key, config):
@@ -74,6 +75,7 @@ def scene(config,width,height,styles,layer='all',selected=None,display=None):
     for group,items,rect_key,fill in [('original',b.get('original_spaces',[]),'rect','rgba(244,180,170,0.55)'),
                                      ('agent',config.get('TargetSpaces',[]),'initial_rect','rgba(66,165,245,0.30)')]:
         for item in items:
+            if group=='agent' and item.get('role')=='residual': continue
             x1,y1,x2,y2=item[rect_key]
             objects.append(dict(type='rect',left=ox+x1*scale,top=oy-y2*scale,width=(x2-x1)*scale,height=(y2-y1)*scale,
                                 fill=fill,stroke='#1565c0' if group=='agent' else '#8d6e63',strokeWidth=1,selectable=False,evented=False,**appearance(group)))
@@ -124,9 +126,20 @@ def parse_scene(objects,config,width,height):
     b['boundary']=validate_boundary(b['boundary'])
     for item in b.get('original_spaces',[]): rect('original',item,'rect')
     for item in result.get('TargetSpaces',[]):
+        if item.get('role') == 'residual': continue
         moved,dx,dy=rect('agent',item,'initial_rect')
-        if 'seed' in item and (dx or dy): item['seed']=[item['seed'][0]+dx,item['seed'][1]+dy]
-        if ('seed',item['id'],'point') in changes: item['seed']=changes[('seed',item['id'],'point')]
+        seed_key=('seed',item['id'],'point')
+        old_seed=before[seed_key]
+        if seed_key in changes:
+            new_seed=changes[seed_key]
+            shift_x,shift_y=new_seed[0]-old_seed[0],new_seed[1]-old_seed[1]
+            item['initial_rect']=[item['initial_rect'][0]+shift_x,item['initial_rect'][1]+shift_y,
+                                  item['initial_rect'][2]+shift_x,item['initial_rect'][3]+shift_y]
+            item['seed']=new_seed
+        elif 'seed' in item and (dx or dy):
+            item['seed']=[item['seed'][0]+dx,item['seed'][1]+dy]
+        elif moved:
+            item['seed']=[old_seed[0]+dx,old_seed[1]+dy]
     updated=[]
     for item in b.get('fixed_objects',[]):
         if item.get('derived'): continue

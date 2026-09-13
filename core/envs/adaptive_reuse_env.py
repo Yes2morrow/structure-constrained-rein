@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass, replace
 import math
 from pathlib import Path
@@ -17,6 +18,75 @@ from shapely.ops import unary_union
 
 from .layout_actions import ACTION_NAMES, load_layout_config, rect_changes_for_action
 from .structure_geometry import fixed_polygon, normalize_structures
+
+
+AREA_BUDGET_OBJECT_TYPES = {"traffic_core", "retained_circulation"}
+
+
+def calculate_area_budget(boundary: list[tuple[float, float]] | list[list[float]], fixed_objects: list[dict[str, Any]]) -> dict[str, float]:
+    """按“空间型约束”估算可分配面积，不把柱墙这类细碎结构计入预算扣减。"""
+    boundary_polygon = Polygon([tuple(map(float, point)) for point in boundary])
+    if not boundary_polygon.is_valid or boundary_polygon.area <= 0:
+        raise ValueError("ExistingBuilding.boundary 必须是有效且面积大于 0 的多边形")
+    blocked_parts = []
+    for item in normalize_structures(fixed_objects):
+        if str(item.get("type")) not in AREA_BUDGET_OBJECT_TYPES:
+            continue
+        blocked = fixed_polygon(item).intersection(boundary_polygon)
+        if not blocked.is_empty and blocked.area > 1e-9:
+            blocked_parts.append(blocked)
+    blocked_area = unary_union(blocked_parts).area if blocked_parts else 0.0
+    allocatable_area = max(boundary_polygon.area - blocked_area, 0.0)
+    return {
+        "boundary_area": float(boundary_polygon.area),
+        "constraint_area": float(blocked_area),
+        "allocatable_area": float(allocatable_area),
+    }
+
+
+def summarize_target_area_budget(config: dict[str, Any]) -> dict[str, float]:
+    """汇总当前目标空间的最小/目标/最大面积，并和可分配面积做对比。"""
+    budget = calculate_area_budget(
+        config["ExistingBuilding"]["boundary"],
+        config["ExistingBuilding"].get("fixed_objects", []),
+    )
+    targets = list(config.get("TargetSpaces", []))
+    min_sum = sum(float(item.get("area_range", [item.get("target_area", 0.0), item.get("target_area", 0.0)])[0]) for item in targets)
+    target_sum = sum(float(item.get("target_area", 0.0)) for item in targets)
+    max_sum = sum(float(item.get("area_range", [item.get("target_area", 0.0), item.get("target_area", 0.0)])[1]) for item in targets)
+    budget.update({
+        "min_area_sum": float(min_sum),
+        "target_area_sum": float(target_sum),
+        "max_area_sum": float(max_sum),
+        "max_area_gap": float(budget["allocatable_area"] - max_sum),
+    })
+    return budget
+
+
+def redistribute_target_max_areas(config: dict[str, Any]) -> list[dict[str, Any]]:
+    """把所有智能体的最大面积按 target_area 比例重新分配到可分配面积上。"""
+    updated = []
+    budget = summarize_target_area_budget(config)
+    targets = list(config.get("TargetSpaces", []))
+    lower_bounds = []
+    weights = []
+    for item in targets:
+        target_area = float(item.get("target_area", 0.0))
+        min_area = float(item.get("area_range", [target_area, target_area])[0])
+        lower_bounds.append(max(min_area, target_area))
+        weights.append(max(target_area, 0.0))
+    lower_sum = sum(lower_bounds)
+    if budget["allocatable_area"] + 1e-9 < lower_sum:
+        raise ValueError(f"可分配面积 {budget['allocatable_area']:.2f} 小于各空间最低可接受最大面积总和 {lower_sum:.2f}")
+    extra_area = max(budget["allocatable_area"] - lower_sum, 0.0)
+    weight_sum = sum(weights) or float(len(weights) or 1)
+    for item, lower_bound, weight in zip(targets, lower_bounds, weights):
+        updated_item = dict(item)
+        current = list(updated_item.get("area_range", [updated_item.get("target_area", 0.0), updated_item.get("target_area", 0.0)]))
+        max_area = lower_bound + extra_area * ((weight or 1.0) / weight_sum)
+        updated_item["area_range"] = [float(current[0]), float(max_area)]
+        updated.append(updated_item)
+    return updated
 
 
 @dataclass
@@ -97,6 +167,7 @@ class AdaptiveReuseEnv(gym.Env):
         self.fixed_objects = normalize_structures(building.get("fixed_objects", []))
         fixed_polygons = [fixed_polygon(item) for item in self.fixed_objects]
         self.fixed_union = unary_union(fixed_polygons) if fixed_polygons else Polygon()
+        self.area_budget = calculate_area_budget(self.boundary, self.fixed_objects)
 
         self.space_specs = list(config["TargetSpaces"])
         if not self.space_specs:
@@ -134,6 +205,7 @@ class AdaptiveReuseEnv(gym.Env):
         self.last_invalid_actions = [False] * self.num_agents
         self.last_metrics: dict[str, float] = {}
         self._last_figure = None
+        self.initial_repairs: list[dict[str, Any]] = []
 
     def _make_space(self, spec: dict[str, Any]) -> FunctionalSpace:
         x1, y1, x2, y2 = map(float, spec["initial_rect"])
@@ -152,6 +224,7 @@ class AdaptiveReuseEnv(gym.Env):
         self.success_steps = 0
         self.invalid_action_count = 0
         self.last_invalid_actions = [False] * self.num_agents
+        self.initial_repairs = []
         self.agent_spaces = [self._make_space(spec) for spec in self.space_specs]
         if self.randomize_initial and self.initial_jitter_steps > 0:
             rng = np.random.default_rng(seed)
@@ -161,6 +234,7 @@ class AdaptiveReuseEnv(gym.Env):
                     candidate = self._candidate_for_action(self.agent_spaces[index], action)
                     if self._is_hard_valid(candidate, index):
                         self.agent_spaces[index] = candidate
+        self._repair_initial_layout()
         self._validate_initial_layout()
         self.last_metrics = self.calculate_metrics()
         return self.get_state(), self._build_info()
@@ -169,6 +243,81 @@ class AdaptiveReuseEnv(gym.Env):
         for index, space in enumerate(self.agent_spaces):
             if not self._is_hard_valid(space, index):
                 raise ValueError(f"目标空间 {space.space_id} 的初始矩形违反边界、固定构件或空间冲突约束")
+
+    def _space_signature(self, space: FunctionalSpace) -> tuple[float, float, float, float]:
+        """用量化坐标去重搜索状态，避免自动修复陷入重复遍历。"""
+        return tuple(round(value, 9) for value in (space.x1, space.y1, space.x2, space.y2))
+
+    def _repair_initial_layout(self) -> None:
+        """在每轮开始前尝试把非法初始矩形推到最近的合法状态。"""
+        for index, space in enumerate(self.agent_spaces):
+            if self._is_hard_valid(space, index):
+                continue
+            repaired, steps = self._find_nearest_valid_space(space, index)
+            if repaired is None:
+                continue
+            self.agent_spaces[index] = repaired
+            self.initial_repairs.append({
+                "space_id": space.space_id,
+                "from_rect": [space.x1, space.y1, space.x2, space.y2],
+                "to_rect": [repaired.x1, repaired.y1, repaired.x2, repaired.y2],
+                "action_steps": steps,
+            })
+
+    def _find_nearest_valid_space(
+        self, start: FunctionalSpace, agent_index: int, max_depth: int = 12, max_nodes: int = 12000
+    ) -> tuple[FunctionalSpace | None, int]:
+        """先做全局平移搜索，再按动作步数做局部广搜，找到最近的合法初始状态。"""
+        translated, translation_steps = self._find_valid_translation(start, agent_index)
+        if translated is not None:
+            return translated, translation_steps
+        queue = deque([(start, 0)])
+        visited = {self._space_signature(start)}
+        seen_nodes = 0
+        # 先平移再缩放，优先保持原始尺度和位置语义。
+        search_actions = (0, 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12)
+        while queue and seen_nodes < max_nodes:
+            current, depth = queue.popleft()
+            seen_nodes += 1
+            if depth > 0 and self._is_hard_valid(current, agent_index):
+                return current, depth
+            if depth >= max_depth:
+                continue
+            for action in search_actions:
+                candidate = self._candidate_for_action(current, action)
+                if candidate.width < self.grid_size or candidate.height < self.grid_size:
+                    continue
+                signature = self._space_signature(candidate)
+                if signature in visited:
+                    continue
+                visited.add(signature)
+                queue.append((candidate, depth + 1))
+        return None, -1
+
+    def _find_valid_translation(self, start: FunctionalSpace, agent_index: int) -> tuple[FunctionalSpace | None, int]:
+        """优先保持房间尺度不变，只通过整体平移寻找最近合法位置。"""
+        min_x, min_y, max_x, max_y = self.boundary_polygon.bounds
+        min_dx = math.ceil((min_x - start.x1) / self.move_step)
+        max_dx = math.floor((max_x - start.x2) / self.move_step)
+        min_dy = math.ceil((min_y - start.y1) / self.move_step)
+        max_dy = math.floor((max_y - start.y2) / self.move_step)
+        offsets = [
+            (dx, dy)
+            for dx in range(min_dx, max_dx + 1)
+            for dy in range(min_dy, max_dy + 1)
+            if dx or dy
+        ]
+        offsets.sort(key=lambda item: (abs(item[0]) + abs(item[1]), max(abs(item[0]), abs(item[1])), abs(item[0]), abs(item[1])))
+        for dx_steps, dy_steps in offsets:
+            candidate = start.copy(
+                x1=start.x1 + dx_steps * self.move_step,
+                y1=start.y1 + dy_steps * self.move_step,
+                x2=start.x2 + dx_steps * self.move_step,
+                y2=start.y2 + dy_steps * self.move_step,
+            )
+            if self._is_hard_valid(candidate, agent_index):
+                return candidate, abs(dx_steps) + abs(dy_steps)
+        return None, -1
 
     def _candidate_for_action(self, space: FunctionalSpace, action: int) -> FunctionalSpace:
         changes = rect_changes_for_action(
@@ -247,7 +396,12 @@ class AdaptiveReuseEnv(gym.Env):
         for relation in self.relations:
             pair = {str(relation.get("from")), str(relation.get("to"))}
             if pair == {first_id, second_id}:
-                return 1.0 if relation.get("type") == "adjacent" else -1.0
+                relation_type = str(relation.get("type", "none"))
+                if relation_type == "adjacent":
+                    return 1.0
+                if relation_type == "separate":
+                    return -1.0
+                return 0.0
         return 0.0
 
     def _original_polygon(self, space: FunctionalSpace) -> Polygon:
@@ -434,6 +588,13 @@ class AdaptiveReuseEnv(gym.Env):
             "action_names": ACTION_NAMES,
             "metrics": self.last_metrics or self.calculate_metrics(),
             "grid_matrix": self.get_grid_matrix(),
+            "initial_repairs": list(self.initial_repairs),
+            "area_budget": {
+                **self.area_budget,
+                "target_area_sum": float(sum(space.target_area for space in self.agent_spaces)),
+                "min_area_sum": float(sum(space.min_area for space in self.agent_spaces)),
+                "max_area_sum": float(sum(space.max_area for space in self.agent_spaces)),
+            },
         }
 
     def render(self, render=False, show_original=True, **kwargs):
@@ -458,8 +619,8 @@ class AdaptiveReuseEnv(gym.Env):
                 ox, oy = original.exterior.xy
                 axis.plot(ox, oy, color="#91a4b7", linestyle="--", linewidth=1.0, alpha=0.9)
 
-        fixed_colors = {"column": "#5f6b76", "load_bearing_wall": "#263238", "shear_wall": "#c62828", "core": "#7b1fa2", "retained_circulation": "#f9a825"}
-        fixed_labels = {"column": "Column", "load_bearing_wall": "Load-bearing wall", "shear_wall": "Shear wall", "core": "Core", "retained_circulation": "Retained circulation"}
+        fixed_colors = {"column": "#5f6b76", "load_bearing_wall": "#263238", "shear_wall": "#c62828", "core": "#7b1fa2", "traffic_core": "#5e35b1", "retained_circulation": "#f9a825"}
+        fixed_labels = {"column": "Column", "load_bearing_wall": "Load-bearing wall", "shear_wall": "Shear wall", "core": "Core", "traffic_core": "Traffic core", "retained_circulation": "Retained circulation"}
         seen_fixed = set()
         for item in self.fixed_objects:
             x1, y1, x2, y2 = map(float, item["rect"])

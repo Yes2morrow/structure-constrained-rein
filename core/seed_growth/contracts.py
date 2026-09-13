@@ -7,7 +7,7 @@ import hashlib
 import json
 import math
 
-from shapely.geometry import Point, Polygon
+from shapely.geometry import Point, Polygon, LineString
 from shapely.ops import unary_union
 
 from core.envs.structure_geometry import fixed_polygon, normalize_structures
@@ -45,6 +45,7 @@ class RoomSpec:
     shape_policy: str = 'regular'
     min_width: float | None = None
     shape_limits: ShapeLimits = field(default_factory=ShapeLimits)
+    role: str = 'agent'
 
 
 @dataclass(frozen=True)
@@ -67,9 +68,20 @@ class Problem:
     free_space: object
     grid_size: float
     precise_every_episodes: int = 250
+    entrance: object = None
+    entrance_clearance: object = None
+    fitting_area_tolerance: float = .12
+
+    @property
+    def active_rooms(self):
+        return tuple(r for r in self.rooms if r.role != 'residual')
+
+    @property
+    def residual_room(self):
+        return next((r for r in self.rooms if r.role == 'residual'), None)
 
     def validate_seeds(self, seeds):
-        if set(seeds) != {r.id for r in self.rooms}:
+        if set(seeds) != {r.id for r in self.active_rooms}:
             raise ValueError('种子 ID 必须与目标房间一一对应')
         seen = set()
         for identifier, raw in seeds.items():
@@ -80,6 +92,8 @@ class Problem:
             p = Point(point)
             if not self.boundary.contains(p) or self.fixed.intersects(p):
                 raise ValueError(f'{identifier} 的种子位于边界外、边界上或固定结构内/表面')
+            if self.entrance_clearance is not None and self.entrance_clearance.covers(p):
+                raise ValueError(f'{identifier} 的种子占用客厅户门内侧预留区域')
 
 
 def build_problem(config):
@@ -100,13 +114,22 @@ def build_problem(config):
         identifier = str(item['id']).strip()
         if not identifier:
             raise ValueError('房间 ID 不能为空')
-        if 'seed' in item:
+        role = item.get('role', 'agent')
+        if role not in ('agent', 'residual'):
+            raise ValueError('空间 role 必须为 agent 或 residual')
+        if role == 'residual':
+            seed = (free.representative_point().x, free.representative_point().y)
+        elif 'seed' in item:
             seed = finite_pair(item['seed'], identifier)
         else:
             x1,y1,x2,y2 = map(float,item['initial_rect'])
             seed = finite_pair([(x1+x2)/2,(y1+y2)/2], identifier)
         area = float(item['target_area'])
         limits = finite_pair(item.get('area_range',[area*.85,area*1.15]), 'area_range')
+        if role == 'residual':
+            minimum = float(item.get('residual_min_area', limits[0]))
+            area = max(minimum, free.area-sum(float(r['target_area']) for r in config['TargetSpaces'] if r.get('role') != 'residual'))
+            limits = (minimum, free.area)
         aspects = finite_pair(item.get('aspect_range',[1,2.5]), 'aspect_range')
         if not math.isfinite(area) or area <= 0 or not 0 < limits[0] <= area <= limits[1]:
             raise ValueError('目标面积必须为正，且位于有效面积范围中')
@@ -135,10 +158,13 @@ def build_problem(config):
                 raise ValueError(f'{name} 必须为正有限数')
         if shape_limits.min_rectangularity > 1 or shape_limits.min_width_ratio > 1:
             raise ValueError('min_rectangularity / min_width_ratio 不得大于 1')
-        rooms.append(RoomSpec(identifier,seed,area,limits,aspects,policy,min_width,shape_limits))
+        rooms.append(RoomSpec(identifier,seed,area,limits,aspects,policy,min_width,shape_limits,role))
     ids = {r.id for r in rooms}
     if not rooms or len(ids) != len(rooms):
         raise ValueError('房间列表不能为空，ID 不能重复')
+    residual = [r for r in rooms if r.role == 'residual']
+    if len(residual) > 1 or len(residual) == len(rooms):
+        raise ValueError('最多设置一个剩余公共空间，并至少保留一个独立房间')
     if sum(r.area_range[0] for r in rooms) > free.area + 1e-9:
         raise ValueError('房间最小面积总和超过扣除固定结构后的自由面积')
     relations = []
@@ -146,8 +172,10 @@ def build_problem(config):
         source,target,kind = str(edge['from']),str(edge['to']),edge['type']
         if source not in ids or target not in ids or source == target:
             raise ValueError('图关系必须连接两个不同的有效房间')
-        if kind not in ('adjacent','connected','via_circulation','separate'):
+        if kind not in ('none','adjacent','connected','via_circulation','separate'):
             raise ValueError(f'不支持的关系类型：{kind}')
+        if kind == 'none':
+            continue
         values = []
         for key in ('min_shared_length','min_clear_width','min_distance'):
             value = edge.get(key)
@@ -160,8 +188,27 @@ def build_problem(config):
     grid = float(config.get('SeedGrowth',{}).get('grid_size',config['AdaptiveReuseEnvironment'].get('grid_size',.5)))
     if not math.isfinite(grid) or grid <= 0:
         raise ValueError('种子网格尺寸必须为正的有限数值')
-    result = Problem(tuple(rooms),tuple(relations),boundary,fixed,free,grid)
-    result.validate_seeds({r.id:r.seed for r in rooms})
+    entrance = clearance = None
+    if residual:
+        raw = building.get('door_positions')
+        if raw is None or len(raw) != 2:
+            raise ValueError('剩余客厅需要 ExistingBuilding.door_positions 指定户门两个端点')
+        entrance = LineString([finite_pair(p, 'door_positions') for p in raw])
+        if entrance.length <= 1e-8 or entrance.difference(boundary.boundary.buffer(1e-7)).length > 1e-7:
+            raise ValueError('户门整段必须位于建筑边界上')
+        depth = float(config.get('SeedGrowth', {}).get('entrance_depth', .9))
+        if not math.isfinite(depth) or depth <= 0:
+            raise ValueError('entrance_depth 必须为正有限数')
+        clearance = entrance.buffer(depth, cap_style=2).intersection(boundary)
+        if clearance.area <= 1e-8 or clearance.intersection(fixed).area > 1e-8:
+            raise ValueError('户门内侧预留区域被固定结构阻挡，请调整户门位置或预留深度')
+    fitting_tolerance = float(config.get('SeedGrowth', {}).get('fitting_area_tolerance', .12))
+    if not math.isfinite(fitting_tolerance) or not 0 <= fitting_tolerance <= .5:
+        raise ValueError('fitting_area_tolerance 必须在 0 到 0.5 之间')
+    result = Problem(tuple(rooms),tuple(relations),boundary,fixed,free,grid,
+                     entrance=entrance, entrance_clearance=clearance,
+                     fitting_area_tolerance=fitting_tolerance)
+    result.validate_seeds({r.id:r.seed for r in result.active_rooms})
     return result
 
 

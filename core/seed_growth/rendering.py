@@ -34,10 +34,16 @@ def render_result(config, result, output):
         draw(problem.fixed,'#455a64')
         seeds=result['snapshot']['seeds']
         for key,(x,y) in seeds.items(): ax.scatter(x,y,s=36,c='black',marker='+',zorder=5)
+        positions=dict(seeds)
+        for key,value in result['polygons'].items():
+            point=shape(value).representative_point()
+            positions.setdefault(key,(point.x,point.y))
+        if problem.entrance is not None:
+            dx,dy=problem.entrance.xy; ax.plot(dx,dy,color='#00897b',lw=5,label='户门（客厅入口）'); ax.legend()
         relations=result['validation']['relations']
         for edge in relations:
             if edge['kind']!='adjacent': continue
-            a,b=seeds[edge['source']],seeds[edge['target']]
+            a,b=positions[edge['source']],positions[edge['target']]
             ax.plot([a[0],b[0]],[a[1],b[1]],'--',color='#238443' if edge['satisfied'] else '#d7301f',alpha=.8,lw=1.5)
         adjacent=[e for e in relations if e['kind']=='adjacent']
         satisfied=sum(e['satisfied'] is True for e in adjacent)

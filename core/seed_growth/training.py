@@ -17,7 +17,7 @@ def stop_requested(path):
 
 
 def model_schema(env):
-    return dict(mode='seed_proxy_v3',actions=5,room_ids=list(env.ids),
+    return dict(mode='seed_proxy_v3',objective_version='graph_partition_v2',actions=5,room_ids=list(env.ids),graph_node_ids=list(env.proxy.ids),
                 observation=list(env.observation_space.shape),max_steps=env.max_steps,
                 config_key=config_key(env.config))
 
@@ -48,7 +48,7 @@ def restore_checkpoint(root, env, agent):
     if root not in folder.parents: raise ValueError('续训检查点不在本次运行目录内')
     record=json.loads((folder/'checkpoint.json').read_text(encoding='utf-8'))
     if record['schema']!=model_schema(env):
-        raise ValueError('模型/节点顺序/动作/配置不兼容；旧矩形或 CP2 模型不能作为此版本续训')
+        raise ValueError('模型/节点顺序/动作/配置/奖励版本不兼容；旧矩形、CP2 或固定实验奖励检查点不能续训共同目标版本，请开始新训练；已有成图仍可查看')
     snapshot=read_snapshot(env.problem,record['snapshot'])
     for i,actor in enumerate(agent.actors):
         actor.load_state_dict(torch.load(folder/'model'/f'actor_{i}.pth',map_location=agent.device,weights_only=True))

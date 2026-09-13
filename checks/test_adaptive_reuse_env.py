@@ -5,7 +5,7 @@ import unittest
 
 import numpy as np
 
-from core.envs import AdaptiveReuseEnv
+from core.envs import AdaptiveReuseEnv, summarize_target_area_budget, redistribute_target_max_areas
 from gui.config_store import load_config
 
 
@@ -61,6 +61,73 @@ class AdaptiveReuseEnvTest(unittest.TestCase):
         self.assertEqual(before, after)
         self.assertTrue(info["reward_components"][0]["invalid_action"] < 0)
         self.assertTrue(np.isfinite(rewards).all())
+
+    def test_reset_auto_repairs_invalid_initial_rect(self):
+        import yaml
+        config = yaml.safe_load((PROJECT_ROOT / 'checks/fixtures/retrofit.yaml').read_text(encoding='utf-8'))
+        config['AdaptiveReuseEnvironment']['randomize_initial'] = False
+        config['ExistingBuilding']['fixed_objects'] = [
+            dict(id='fixture_column', type='column', rect=[11.85, 11.85, 12.15, 12.15]),
+        ]
+        env = AdaptiveReuseEnv(config)
+
+        _, info = env.reset(seed=4)
+
+        self.assertEqual(info["metrics"]["hard_conflicts"], 0.0)
+        self.assertTrue(info["initial_repairs"])
+        self.assertEqual(info["initial_repairs"][0]["space_id"], "living")
+        self.assertTrue(env._is_hard_valid(env.agent_spaces[0], 0))
+
+    def test_area_budget_only_subtracts_space_like_constraints(self):
+        import yaml
+        config = yaml.safe_load((PROJECT_ROOT / 'checks/fixtures/retrofit.yaml').read_text(encoding='utf-8'))
+        config['ExistingBuilding']['fixed_objects'] = [
+            dict(id='traffic_1', type='traffic_core', rect=[0.0, 0.0, 5.0, 4.0]),
+            dict(id='cir_1', type='retained_circulation', rect=[10.0, 0.0, 12.0, 3.0]),
+            dict(id='column_1', type='column', rect=[20.0, 1.0, 20.5, 1.5]),
+            dict(id='wall_1', type='load_bearing_wall', rect=[25.0, 1.0, 29.0, 1.4]),
+        ]
+
+        budget = summarize_target_area_budget(config)
+
+        self.assertAlmostEqual(budget["boundary_area"], 540.0)
+        self.assertAlmostEqual(budget["constraint_area"], 26.0)
+        self.assertAlmostEqual(budget["allocatable_area"], 514.0)
+
+    def test_auto_redistribute_max_area_matches_allocatable_area(self):
+        import yaml
+        config = yaml.safe_load((PROJECT_ROOT / 'checks/fixtures/retrofit.yaml').read_text(encoding='utf-8'))
+        config['ExistingBuilding']['fixed_objects'] = [
+            dict(id='traffic_1', type='traffic_core', rect=[0.0, 0.0, 6.0, 5.0]),
+        ]
+        updated = redistribute_target_max_areas(config)
+        budget = summarize_target_area_budget({**config, 'TargetSpaces': updated})
+
+        self.assertAlmostEqual(budget["allocatable_area"], budget["max_area_sum"])
+        for item in updated:
+            self.assertGreaterEqual(item["area_range"][1], item["target_area"])
+            self.assertGreaterEqual(item["area_range"][1], item["area_range"][0])
+
+    def test_reset_auto_repairs_large_translation_around_traffic_core(self):
+        import yaml
+        config = yaml.safe_load((PROJECT_ROOT / 'checks/fixtures/retrofit.yaml').read_text(encoding='utf-8'))
+        config['AdaptiveReuseEnvironment']['randomize_initial'] = False
+        config['ExistingBuilding']['fixed_objects'] = [
+            dict(id='traffic_1', type='traffic_core', rect=[20.0, 0.0, 30.0, 18.0]),
+        ]
+        config['TargetSpaces'][0]['initial_rect'] = [8.5, 12.5, 21.584858490566038, 17.09896226415094]
+        config['TargetSpaces'][1]['initial_rect'] = [0.0, 1.0, 5.5, 9.5]
+        config['TargetSpaces'][2]['initial_rect'] = [22.5, 12.5, 29.0, 18.0]
+        config['TargetSpaces'][3]['initial_rect'] = [22.5, 1.0, 29.0, 5.0]
+        config['TargetSpaces'][4]['initial_rect'] = [1.0, 12.5, 7.5, 18.0]
+        config['TargetSpaces'][5]['initial_rect'] = [22.5, 6.5, 29.0, 10.5]
+        env = AdaptiveReuseEnv(config)
+
+        _, info = env.reset(seed=42)
+
+        self.assertEqual(info["metrics"]["hard_conflicts"], 0.0)
+        repaired_ids = {item["space_id"] for item in info["initial_repairs"]}
+        self.assertTrue({"living", "second_bedroom", "kitchen", "dining"} <= repaired_ids)
 
 
 if __name__ == "__main__":

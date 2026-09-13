@@ -33,13 +33,18 @@ def run_app() -> None:
 
     render_sidebar_controls(config, config_id)
 
-    tab_config, tab_monitor, tab_preview = st.tabs(["参数配置", "训练监控", "布局预览"])
-
-    with tab_config:
-        if is_adaptive_reuse:
-            render_adaptive_reuse_config_page(config, config_id)
-        else:
-            render_config_page(config, config_id)
+    view_options = ["参数配置", "训练监控", "布局预览"]
+    current_view = st.session_state.get("main_view", "参数配置")
+    if current_view not in view_options:
+        current_view = "参数配置"
+    st.session_state.main_view = st.radio(
+        "主视图",
+        view_options,
+        index=view_options.index(current_view),
+        horizontal=True,
+        key="main_view_selector",
+        label_visibility="collapsed",
+    )
 
     is_running = st.session_state.training_status in {"Running", "Stopping"}
     training_conf = config.get("Training", {})
@@ -47,7 +52,12 @@ def run_app() -> None:
     configured_episodes = int(training_conf.get("episodes", 0))
     render_enabled = bool(config.get("Render", False))
 
-    with tab_monitor:
+    if st.session_state.main_view == "参数配置":
+        if is_adaptive_reuse:
+            render_adaptive_reuse_config_page(config, config_id)
+        else:
+            render_config_page(config, config_id)
+    elif st.session_state.main_view == "训练监控":
         def _render_monitor_tab() -> None:
             render_monitor_page(get_latest_log(), agent_name, configured_episodes, render_enabled)
 
@@ -64,8 +74,7 @@ def run_app() -> None:
             render_monitor_fragment()
         else:
             _render_monitor_tab()
-
-    with tab_preview:
+    else:
         render_preview_page()
 
     if is_running and not hasattr(st, "fragment"):

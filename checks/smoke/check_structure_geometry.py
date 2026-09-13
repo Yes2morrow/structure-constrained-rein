@@ -7,7 +7,7 @@ import math
 import matplotlib
 matplotlib.use('Agg')
 from shapely.geometry import box
-from core.envs.structure_geometry import column, wall, fixed_polygon, detect_cores, parameter_rows, build_structures
+from core.envs.structure_geometry import column, wall, zone, fixed_polygon, detect_cores, parameter_rows, build_structures, normalize_structures
 from core.envs import AdaptiveReuseEnv
 from gui.config_store import load_config
 from gui.structure_canvas import canvas_objects, parse_canvas, signature
@@ -32,9 +32,13 @@ def test_geometry():
     mixed[-1]['type'] = 'load_bearing_wall'
     assert detect_cores(mixed) == []
     assert fixed_polygon(detect_cores(ring)[0]).contains(box(11,11,12,12))
-    cc, ww, oo = parameter_rows([c, diagonal])
-    rebuilt = build_structures(cc, ww, oo)
-    assert fixed_polygon(rebuilt[1]).equals(fixed_polygon(diagonal))
+    traffic_core = zone('traffic_1', 'traffic_core', 20, 20, 24, 24)
+    cc, ww, zz, oo = parameter_rows([c, diagonal, traffic_core])
+    rebuilt = build_structures(cc, ww, zz, oo)
+    assert fixed_polygon(next(item for item in rebuilt if item['id'] == 'd')).equals(fixed_polygon(diagonal))
+    assert next(item for item in rebuilt if item['id'] == 'traffic_1')['type'] == 'traffic_core'
+    migrated = normalize_structures([dict(id='legacy_core', type='core', rect=[20, 20, 24, 24])])
+    assert migrated[0]['type'] == 'traffic_core'
     for args in [('bad', 0, 0, -1, 2), ('bad', float('nan'), 0, 1, 1)]:
         try:
             column(*args)

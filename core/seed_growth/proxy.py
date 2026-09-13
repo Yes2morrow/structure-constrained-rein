@@ -34,25 +34,33 @@ class LayoutProxy:
             for x in range(self.cols):
                 cell=box(self.x0+x*self.h,self.y0+y*self.h,self.x0+(x+1)*self.h,self.y0+(y+1)*self.h)
                 self.free[y,x]=problem.boundary.covers(cell) and cell.intersection(problem.fixed).area<=1e-12
+        self.reserved = np.zeros_like(self.free)
+        if problem.entrance_clearance is not None:
+            for y,x in zip(*np.nonzero(self.free)):
+                cell=box(self.x0+x*self.h,self.y0+y*self.h,self.x0+(x+1)*self.h,self.y0+(y+1)*self.h)
+                self.reserved[y,x] = cell.intersection(problem.entrance_clearance).area > 1e-12
+        self.private_free = self.free & ~self.reserved
         a,b=[],[]
-        for y,x in zip(*np.nonzero(self.free)):
+        for y,x in zip(*np.nonzero(self.private_free)):
             for dy,dx in ((0,1),(1,0),(0,-1),(-1,0)):
                 yy,xx=y+dy,x+dx
-                if 0<=yy<self.rows and 0<=xx<self.cols and self.free[yy,xx]:
+                if 0<=yy<self.rows and 0<=xx<self.cols and self.private_free[yy,xx]:
                     a.append(y*self.cols+x); b.append(yy*self.cols+xx)
         count=self.rows*self.cols
         self.graph=[[] for _ in range(count)]
         for first,second in zip(a,b): self.graph[first].append(second)
-        self.components,self.component_count=label(self.free)
+        self.components,self.component_count=label(self.private_free)
         self.distance_cache=OrderedDict()
         self.result_cache=OrderedDict()
         self.cache_size=cache_size
         self.ids=tuple(r.id for r in problem.rooms)
+        self.active_ids=tuple(r.id for r in problem.active_rooms)
+        self.active_indices=tuple(self.ids.index(k) for k in self.active_ids)
 
     def cell(self, point):
         x,y=point
         row,col=int(math.floor((y-self.y0)/self.h)),int(math.floor((x-self.x0)/self.h))
-        if not (0<=row<self.rows and 0<=col<self.cols and self.free[row,col]):
+        if not (0<=row<self.rows and 0<=col<self.cols and self.private_free[row,col]):
             raise ValueError('种子所在粗网格被结构占用或越界；请调整种子/细化网格，不能静默穿墙')
         return row*self.cols+col
 
@@ -76,35 +84,40 @@ class LayoutProxy:
         return self._remember(self.distance_cache,cell,dist)
 
     def evaluate(self, seeds):
-        cells=tuple(self.cell(seeds[k]) for k in self.ids)
+        cells=tuple(self.cell(seeds[k]) for k in self.active_ids)
         if len(set(cells))!=len(cells): raise ValueError('种子不能占用同一个代理网格')
         if cells in self.result_cache:
             self.result_cache.move_to_end(cells)
             return self.result_cache[cells]
-        dist=np.stack([self.distances(c) for c in cells])
+        dist=np.full((len(self.ids),len(self.graph)),np.inf)
+        for i,c in zip(self.active_indices,cells): dist[i]=self.distances(c)
         targets=np.array([r.target_area for r in self.problem.rooms])
         costs=dist/np.sqrt(targets[:,None])
         owners=np.argmin(costs,axis=0)
         owners[~np.isfinite(costs.min(axis=0))]=-1
         # Bounded capacity estimate, not polygon growth: retain closest owned cells.
-        for i,c in enumerate(cells):
+        for i,c in zip(self.active_indices,cells):
             owners[c]=i
         for i,room in enumerate(self.problem.rooms):
+            if room.role == 'residual': continue
             candidates=np.flatnonzero(owners==i)
             limit=max(1,int(math.floor(room.target_area/self.h**2)))
             if len(candidates)>limit:
                 order=np.argsort(dist[i,candidates],kind='stable')
                 owners[candidates[order[limit:]]]=-1
+        if self.problem.residual_room:
+            residual_index=self.ids.index(self.problem.residual_room.id)
+            owners[(owners<0)&self.free.ravel()]=residual_index
         owners=owners.reshape(self.rows,self.cols)
         areas=[]; rectangularity=[]; fragmentation=[]; capacity=[]; aspects=[]
-        for i,c in enumerate(cells):
+        for i in range(len(self.ids)):
             yy,xx=np.nonzero(owners==i)
             areas.append(len(xx)*self.h**2)
             rectangularity.append(len(xx)/((xx.max()-xx.min()+1)*(yy.max()-yy.min()+1)) if len(xx) else 0.)
             aspects.append(max(xx.max()-xx.min()+1,yy.max()-yy.min()+1)/min(xx.max()-xx.min()+1,yy.max()-yy.min()+1) if len(xx) else 0.)
             fragmentation.append(label(owners==i)[1])
-            capacity.append(np.isfinite(dist[i]).sum()*self.h**2)
-        shared=np.zeros((len(cells),len(cells)))
+            capacity.append((self.free.sum() if self.problem.rooms[i].role=='residual' else np.isfinite(dist[i]).sum())*self.h**2)
+        shared=np.zeros((len(self.ids),len(self.ids)))
         for first,second in ((owners[:,:-1],owners[:,1:]),(owners[:-1,:],owners[1:,:])):
             valid=(first>=0)&(second>=0)&(first!=second)
             for i,j in zip(first[valid],second[valid]):
@@ -116,8 +129,11 @@ class LayoutProxy:
             if edge.kind=='adjacent':
                 value=min(1.,shared[i,j]/(edge.min_shared_length or self.h))
                 contact_scale=(math.sqrt(self.problem.rooms[i].target_area)+math.sqrt(self.problem.rooms[j].target_area))/2
-                distance=dist[i,cells[j]]
-                proximity=float(math.exp(-max(0.,distance-contact_scale)/contact_scale)) if math.isfinite(distance) else 0.
+                aa=np.argwhere(owners==i); bb=np.argwhere(owners==j)
+                gap=min((np.linalg.norm(np.maximum(np.abs(bb-p)-1,0),axis=1).min() for p in aa),default=0)*self.h if len(bb) else float('inf')
+                reachable = (i not in self.active_indices or j not in self.active_indices
+                    or math.isfinite(dist[i,cells[self.active_indices.index(j)]]))
+                proximity=float(math.exp(-gap/max(contact_scale,self.h))) if reachable else 0.
             elif edge.kind=='separate':
                 # Empty regions or seeds alone cannot prove room separation.
                 aa=np.argwhere(owners==i); bb=np.argwhere(owners==j)

@@ -3,7 +3,14 @@ from .room import *
 from .loads import load_yaml_file, copy_yaml_file
 from .building import Building
 from .residential_env import ResidentialLayoutEnv, make_residential_env
-from .adaptive_reuse_env import AdaptiveReuseEnv, FunctionalSpace, make_adaptive_reuse_env
+from .adaptive_reuse_env import (
+    AdaptiveReuseEnv,
+    FunctionalSpace,
+    calculate_area_budget,
+    summarize_target_area_budget,
+    redistribute_target_max_areas,
+    make_adaptive_reuse_env,
+)
 
 
 def make_env(config_path:str):

@@ -51,7 +51,13 @@ def is_process_running(pid: int) -> bool:
 def training_command(config, config_id):
     script=TRAIN_SCRIPT
     if config.get('ProjectType')=='adaptive_reuse':
-        seed=config.get('SeedGrowth',{})
+        training_stage=str(config.get('Training',{}).get('training_stage','room_training')).strip()
+        floor_partition=config.get('FloorPartition',{})
+        if training_stage=='floor_partition':
+            script=os.path.join(os.path.dirname(TRAIN_SCRIPT),'train_floor_partition.py')
+            return [sys.executable,'-u',script,'--config-id',str(config_id)]
+        seed=dict(config.get('SeedGrowth',{}))
+        if any(r.get('role')=='residual' for r in config.get('TargetSpaces',[])): seed['enabled']=True
         script=os.path.join(os.path.dirname(TRAIN_SCRIPT),'train_seed_layout.py' if seed.get('enabled',False) else 'train_adaptive_reuse.py')
         if seed.get('enabled',False) and str(seed.get('resume_run','')).strip():
             return [sys.executable,'-u',script,'--resume',str(seed['resume_run']).strip(),
@@ -110,7 +116,6 @@ def start_training(config_id: str) -> tuple[bool, str]:
         with open(PID_FILE, "w", encoding="utf-8") as file:
             file.write(str(process.pid))
 
-        st.rerun()
         return True, f"训练已启动，PID: {process.pid}"
     except Exception as exc:
         return False, f"启动失败: {exc}"

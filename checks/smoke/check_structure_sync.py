@@ -73,7 +73,7 @@ def test_roundtrip():
             persisted['ExistingBuilding']['fixed_objects'][1]['rect']=[0,0,1,1]
             Path(path).write_text(yaml.safe_dump(persisted),encoding='utf-8')
             assert signature(load_config('qa')['ExistingBuilding']['fixed_objects'])==signature(items)
-    print('PASS: stable IDs, YAML roundtrip, drag directions, asymmetric scaling, deletion, core refresh and legacy migration')
+    print('PASS: stable IDs, YAML roundtrip, drag directions, asymmetric scaling, deletion, core refresh, traffic-core zones and legacy migration')
 
 
 if __name__=='__main__':
