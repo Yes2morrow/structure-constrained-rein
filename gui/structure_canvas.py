@@ -24,7 +24,9 @@ def signature(items):
 
 def viewport(boundary, width, height):
     xs, ys = zip(*boundary)
-    scale = min((width-32)/(max(xs)-min(xs)), (height-32)/(max(ys)-min(ys)))
+    # 100px total padding keeps the read-only outside dimension annotations
+    # (lines at ±13px, labels beyond) inside the canvas on every side.
+    scale = min((width-100)/(max(xs)-min(xs)), (height-100)/(max(ys)-min(ys)))
     ox = (width-(max(xs)-min(xs))*scale)/2-min(xs)*scale
     oy = (height-(max(ys)-min(ys))*scale)/2+max(ys)*scale
     return scale, ox, oy

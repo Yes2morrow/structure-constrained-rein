@@ -1,0 +1,272 @@
+AdaptiveReuseEnvironment:
+  adjacency_distance: 0.5
+  area_tolerance: 0.12
+  grid_size: 0.5
+  initial_jitter_steps: 1
+  max_intervention_ratio: 0.45
+  move_step: 0.5
+  randomize_initial: true
+  resize_step: 0.5
+  separation_distance: 3.0
+  success_patience: 8
+AlgorithmAdvanced:
+  clip_epsilon: 0.2
+  entropy_coef: 0.01
+  gae_lambda: 0.95
+  gamma: 0.99
+  hidden_size: 256
+  max_grad_norm: 0.5
+  ppo_epochs: 5
+  reward_clip_range: 8.0
+BuildingTypology: traditional_tangwu
+ConversionGoal: modern_residence
+FloorPartition:
+  enabled: false
+  program_type: residential
+  grid_size: 0.5
+  residential:
+    unit_count: 2
+    target_area_mode: equal
+    target_areas: [80.0, 80.0]
+    corridor_width: 1.5
+    min_door_spacing: 2.4
+    door_width: 0.9
+    opening_width: 1.5
+    opening_side: auto
+    export_config_prefix: unit
+ExistingBuilding:
+  door_positions: [[13.8, 0.0], [16.2, 0.0]]
+  boundary: [[0.0, 0.0], [30.0, 0.0], [30.0, 18.0], [0.0, 18.0]]
+  fixed_objects:
+  - id: '1'
+    type: column
+    center: [6.0, 6.0]
+    size: [0.3, 0.3]
+    rect: [5.85, 5.85, 6.15, 6.15]
+    parametric: true
+  - id: '2'
+    type: column
+    center: [12.0, 6.0]
+    size: [0.3, 0.3]
+    rect: [11.85, 5.85, 12.15, 6.15]
+    parametric: true
+  - id: '3'
+    type: column
+    center: [18.0, 6.0]
+    size: [0.3, 0.3]
+    rect: [17.85, 5.85, 18.15, 6.15]
+    parametric: true
+  - id: '4'
+    type: column
+    center: [24.0, 6.0]
+    size: [0.3, 0.3]
+    rect: [23.85, 5.85, 24.15, 6.15]
+    parametric: true
+  - id: '5'
+    type: column
+    center: [6.0, 12.0]
+    size: [0.3, 0.3]
+    rect: [5.85, 11.85, 6.15, 12.15]
+    parametric: true
+  - id: '6'
+    type: column
+    center: [12.0, 12.0]
+    size: [0.3, 0.3]
+    rect: [11.85, 11.85, 12.15, 12.15]
+    parametric: true
+  - id: '7'
+    type: column
+    center: [18.0, 12.0]
+    size: [0.3, 0.3]
+    rect: [17.85, 11.85, 18.15, 12.15]
+    parametric: true
+  - id: '8'
+    type: column
+    center: [24.0, 12.0]
+    size: [0.3, 0.3]
+    rect: [23.85, 11.85, 24.15, 12.15]
+    parametric: true
+  - id: column_60323572e0fe
+    type: column
+    center: [19.486117021, 13.96412234]
+    size: [0.405957447, 2.119308511]
+    rect: [19.2831382975, 12.9044680845, 19.689095744499998, 15.0237765955]
+    parametric: true
+  - id: column_04e65d13b0a4
+    type: column
+    center: [16.403138298, 14.567553191]
+    size: [0.191489362, 0.191489362]
+    rect: [16.307393617, 14.47180851, 16.498882978999998, 14.663297872]
+    parametric: true
+  - id: column_bc557bed9845
+    type: column
+    center: [21.560425532, 15.271515957]
+    size: [0.405957447, 0.76643617]
+    rect: [21.3574468085, 14.888297872, 21.7634042555, 15.654734042]
+    parametric: true
+  - id: column_d157a0617c6c
+    type: column
+    center: [22.687579787, 15.468989362]
+    size: [0.225478723, 0.191489362]
+    rect: [22.5748404255, 15.373244681000001, 22.8003191485, 15.564734043]
+    parametric: true
+  - id: column_1cdc79993a1d
+    type: column
+    center: [23.121542553, 14.212340426]
+    size: [0.191489362, 0.540957447]
+    rect: [23.025797872000002, 13.9418617025, 23.217287234, 14.482819149500001]
+    parametric: true
+  - id: traffic_core_281d6b02fafd
+    type: traffic_core
+    rect: [24.0, 0.0, 30.0, 18.0]
+    parametric: true
+  original_spaces:
+  - id: living
+    rect: [8.5, 11.5, 21.5, 17.5]
+    name: 原有空间
+  - id: master_bedroom
+    rect: [1.0, 1.0, 7.5, 9.5]
+    name: 原西侧房
+  - id: second_bedroom
+    rect: [14.056489361702123, 6.570425531914893, 20.556489361702123, 13.570425531914893]
+    name: 原东侧房
+  - id: kitchen
+    rect: [12.250744680851058, 1.1064361702127643, 18.750744680851057, 5.106436170212764]
+    name: 原灶房
+  - id: bathroom
+    rect: [1.0, 10.5, 7.5, 17.5]
+    name: 原西北房
+  - id: dining
+    rect: [7.205957446808508, 5.447021276595745, 13.705957446808508, 9.447021276595745]
+    name: 原东南房
+  structure_schema_version: 2
+FunctionalRelations:
+- from: living
+  to: master_bedroom
+  type: none
+- from: living
+  to: second_bedroom
+  type: none
+- from: living
+  to: kitchen
+  type: none
+- from: living
+  to: bathroom
+  type: none
+- from: living
+  to: dining
+  type: adjacent
+- from: master_bedroom
+  to: second_bedroom
+  type: none
+- from: master_bedroom
+  to: kitchen
+  type: separate
+- from: master_bedroom
+  to: bathroom
+  type: adjacent
+- from: master_bedroom
+  to: dining
+  type: none
+- from: second_bedroom
+  to: kitchen
+  type: none
+- from: second_bedroom
+  to: bathroom
+  type: adjacent
+- from: second_bedroom
+  to: dining
+  type: none
+- from: kitchen
+  to: bathroom
+  type: none
+- from: kitchen
+  to: dining
+  type: adjacent
+- from: bathroom
+  to: dining
+  type: separate
+Language: zh
+ProjectType: adaptive_reuse
+Render: true
+RewardWeights:
+  adjacency: 1.5
+  area: 3.0
+  intervention: 1.0
+  invalid_action: 4.0
+  original_reuse: 1.5
+  separation: 1.0
+  shape: 1.0
+  structure_alignment: 0.8
+  team_coordination: 0.5
+SeedGrowth:
+  enabled: true
+  entrance_depth: 0.9
+TargetSpaces:
+- area_range: [30.0, 91.91489361702128]
+  aspect_range: [1.0, 2.0]
+  id: living
+  role: residual
+  residual_min_area: 30.0
+  min_width: 0.9
+  initial_rect: [6.5, 7.0, 19.584858490566038, 11.598962264150941]
+  name: 客厅
+  target_area: 36.0
+  seed: [13.042429245283019, 9.29948113207547]
+  shape_policy: regular
+- area_range: [30.0, 91.91489361702128]
+  aspect_range: [1.0, 1.8]
+  id: master_bedroom
+  initial_rect: [0.0, 1.0, 5.5, 9.5]
+  name: 主卧室
+  target_area: 36.0
+  seed: [2.75, 5.25]
+  shape_policy: regular
+  role: agent
+- area_range: [24.0, 76.59574468085106]
+  aspect_range: [1.0, 1.8]
+  id: second_bedroom
+  initial_rect: [13.5, 12.5, 20.0, 18.0]
+  name: 次卧室
+  target_area: 30.0
+  seed: [16.75, 15.25]
+  shape_policy: regular
+  role: agent
+- area_range: [12.0, 38.29787234042553]
+  aspect_range: [1.0, 2.2]
+  id: kitchen
+  initial_rect: [13.5, 1.0, 20.0, 5.0]
+  name: 厨房
+  target_area: 15.0
+  seed: [16.75, 3.0]
+  shape_policy: regular
+  role: agent
+- area_range: [6.0, 20.425531914893618]
+  aspect_range: [1.0, 2.0]
+  id: bathroom
+  initial_rect: [1.0, 12.5, 7.5, 18.0]
+  name: 卫生间
+  target_area: 8.0
+  seed: [4.25, 15.25]
+  shape_policy: regular
+  role: agent
+- area_range: [12.0, 40.851063829787236]
+  aspect_range: [1.0, 2.2]
+  id: dining
+  initial_rect: [7.0, 1.5, 13.5, 5.5]
+  name: 餐厅
+  target_area: 16.0
+  seed: [10.25, 3.5]
+  shape_policy: regular
+  role: agent
+Training:
+  agent_name: mappo
+  batch_size: 64
+  ckpt_path: ''
+  episodes: 1000
+  lr: 0.0003
+  max_steps: 240
+  resume_mode: fresh
+  save_interval: 20
+  seed: 42
+  training_stage: room_training

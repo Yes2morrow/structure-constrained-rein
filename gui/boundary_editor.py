@@ -4,6 +4,7 @@ import streamlit as st
 from shapely.geometry import Polygon
 from gui.structure_canvas import viewport
 from gui.config_store import load_config, save_config
+from gui.layout_repair import repair_conflicts_and_save, queue_repair_notice
 
 
 def validate_boundary(points):
@@ -28,6 +29,9 @@ def save_boundary(config,config_id,points):
     saved['ExistingBuilding']['boundary']=points
     save_config(saved,config_id)
     config['ExistingBuilding']['boundary']=points
+    # 边界收缩可能把智能体房间挤出边界或压进固定结构：自动挪回合法位置并保存。
+    rect_repairs, seed_fixes, repair_error = repair_conflicts_and_save(config, config_id)
+    queue_repair_notice(config_id, rect_repairs, seed_fixes, repair_error)
     key=f'{config_id}_ar_canvas_revision'
     st.session_state[key]=st.session_state.get(key,0)+1
 

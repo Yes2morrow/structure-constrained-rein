@@ -54,7 +54,13 @@ _render_target_editor(load_config('test'),'test')
             self.assertFalse(app.error,[e.value for e in app.error])
         self.assertEqual(state['TargetSpaces'][0]['role'],'residual')
         self.assertEqual(state['TargetSpaces'][0]['residual_min_area'],12.)
-        self.assertEqual(len(state['FunctionalRelations']),2)
+        # The editor now stores every node pair, including unconstrained pairs.
+        relations={(r['from'],r['to']):r for r in state['FunctionalRelations']}
+        self.assertEqual(len(state['FunctionalRelations']),3)
+        self.assertEqual(relations[('living','a')]['type'],'adjacent')
+        self.assertEqual(relations[('a','b')]['type'],'adjacent')
+        self.assertEqual(relations[('a','b')]['min_shared_length'],2)
+        self.assertEqual(relations[('living','b')]['type'],'none')
 
     def test_real_mappo_update_and_checkpoint_with_public_node(self):
         import torch

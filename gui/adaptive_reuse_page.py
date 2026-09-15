@@ -28,9 +28,13 @@ from common.config_manager import get_config_dir
 from core.envs import AdaptiveReuseEnv, summarize_target_area_budget, redistribute_target_max_areas
 from core.floor_partition import build_floor_partition_problem, run_residential_floor_partition
 from gui.config_store import load_config, save_config
+from gui.layout_repair import (apply_env_repairs_to_targets as _apply_env_repairs_to_targets,
+                               auto_repair_targets_config as _auto_repair_targets_config,
+                               private_rectangle_config as _private_rectangle_config,
+                               repair_conflicts_and_save, queue_repair_notice)
 from gui.structure_editor import render_structure_editor, save_structures
 from gui.boundary_editor import boundary_handles, parse_boundary_handles, save_boundary
-from gui.environment_canvas import scene, parse_scene, controls as environment_controls, color as control_color, entrance_points, DISPLAY_LAYERS
+from gui.environment_canvas import scene, parse_scene, controls as environment_controls, color as control_color, entrance_points, DISPLAY_LAYERS, FUNCTION_ROOM_COLORS
 from gui.structure_canvas import canvas_objects, parse_canvas, signature, viewport, identity_colors
 
 
@@ -561,56 +565,6 @@ def _render_relation_graph(config: dict, graph_height: int = 260) -> None:
     components.html(html, height=height + 86, scrolling=False)
 
 
-def _apply_env_repairs_to_targets(config: dict, env: AdaptiveReuseEnv) -> list[dict]:
-    """把环境 reset() 自动修复后的初始矩形回写到前端配置。"""
-    repaired_by_id = {space.space_id: space for space in env.agent_spaces}
-    repairs: list[dict] = []
-    updated_targets = []
-    for item in config.get("TargetSpaces", []):
-        updated = deepcopy(item)
-        repaired = repaired_by_id.get(str(updated.get("id", "")))
-        if repaired is None:
-            updated_targets.append(updated)
-            continue
-        old_rect = list(map(float, updated.get("initial_rect", [repaired.x1, repaired.y1, repaired.x2, repaired.y2])))
-        new_rect = [repaired.x1, repaired.y1, repaired.x2, repaired.y2]
-        if any(abs(old - new) > 1e-9 for old, new in zip(old_rect, new_rect)):
-            if "seed" in updated:
-                old_center = ((old_rect[0] + old_rect[2]) / 2.0, (old_rect[1] + old_rect[3]) / 2.0)
-                new_center = ((new_rect[0] + new_rect[2]) / 2.0, (new_rect[1] + new_rect[3]) / 2.0)
-                updated["seed"] = [
-                    float(updated["seed"][0]) + (new_center[0] - old_center[0]),
-                    float(updated["seed"][1]) + (new_center[1] - old_center[1]),
-                ]
-            updated["initial_rect"] = new_rect
-            repairs.append({
-                "space_id": updated["id"],
-                "from_rect": old_rect,
-                "to_rect": new_rect,
-            })
-        updated_targets.append(updated)
-    config["TargetSpaces"] = updated_targets
-    return repairs
-
-
-def _private_rectangle_config(config):
-    result=deepcopy(config)
-    result['TargetSpaces']=[r for r in result['TargetSpaces'] if r.get('role')!='residual']
-    ids={r['id'] for r in result['TargetSpaces']}
-    result['FunctionalRelations']=[e for e in result.get('FunctionalRelations',[]) if e['from'] in ids and e['to'] in ids]
-    return result
-
-
-def _auto_repair_targets_config(config: dict, seed: int) -> tuple[dict, list[dict], dict]:
-    """用环境硬约束自动修复初始智能体布局，返回修复后的整份配置。"""
-    repaired_config = yaml.safe_load(yaml.safe_dump(config, allow_unicode=True))
-    repaired_config["AdaptiveReuseEnvironment"]["randomize_initial"] = False
-    env = AdaptiveReuseEnv(_private_rectangle_config(repaired_config))
-    _, info = env.reset(seed=seed)
-    repairs = _apply_env_repairs_to_targets(repaired_config, env)
-    return repaired_config, repairs, info
-
-
 def _plan_font(size: int):
     candidates = [
         "C:/Windows/Fonts/msyh.ttc",
@@ -625,7 +579,7 @@ def _plan_font(size: int):
 
 
 def _create_tangwu_plan_image(config: dict, width: int, height: int, grid_only=False):
-    """根据原始空间数据生成可直接标注的传统堂屋二维底图。"""
+    """根据原始空间数据生成可直接标注的既有住宅二维底图。"""
     building = config["ExistingBuilding"]
     boundary = building["boundary"]
     xs, ys = [float(point[0]) for point in boundary], [float(point[1]) for point in boundary]
@@ -692,11 +646,11 @@ def _create_tangwu_plan_image(config: dict, width: int, height: int, grid_only=F
     boundary_pixels = [point(float(x), float(y)) for x, y in boundary]
     draw.line(boundary_pixels + [boundary_pixels[0]], fill="#182c3d", width=7, joint="curve")
 
-    # 堂屋主入口符号，帮助辨识传统住宅的中轴与朝向。
+    # 住宅主入口符号，帮助辨识既有住宅的中轴与朝向。
     opening=[point(x,y) for x,y in entrance_points(building)]
     if len(opening)>=2:
         draw.line(opening,fill='#2d6f9f',width=7)
-    draw.text((12, 10), "传统堂屋住宅·原始平面", fill="#1f3448", font=title_font)
+    draw.text((12, 10), "既有住宅·原始平面", fill="#1f3448", font=title_font)
     draw.text((12, 40), "浅色区域：原有房间　彩色覆盖：保留结构约束", fill="#617181", font=small_font)
     return image
 
@@ -719,12 +673,12 @@ def _load_plan_image(config: dict, width: int, height: int):
 def _render_residential_inputs(config, config_id):
     original_before=deepcopy(config["ExistingBuilding"].get("original_spaces",[]))
     revision=st.session_state.get(f"{config_id}_ar_canvas_revision",0)
-    st.markdown("### 传统堂屋住宅输入")
+    st.markdown("### 既有住宅输入")
     scenario_col1, scenario_col2 = st.columns(2)
     with scenario_col1:
         config["BuildingTypology"] = st.text_input(
             "既有建筑类型", value=config.get("BuildingTypology", "traditional_tangwu"),
-            help="当前研究场景固定为传统堂屋住宅。", key=f"{config_id}_ar_typology",
+            help="当前研究场景为既有住宅更新。", key=f"{config_id}_ar_typology",
         )
     with scenario_col2:
         config["ConversionGoal"] = st.text_input(
@@ -773,6 +727,9 @@ def _save_scene(config, config_id, updated):
         saved[field]=updated[field]
         config[field]=updated[field]
     save_config(saved,config_id)
+    # 结构/边界交互可能把智能体房间压进固定结构：自动挪回合法位置并保存。
+    rect_repairs, seed_fixes, repair_error = repair_conflicts_and_save(config, config_id)
+    queue_repair_notice(config_id, rect_repairs, seed_fixes, repair_error)
     key=f'{config_id}_ar_canvas_revision'
     st.session_state[key]=st.session_state.get(key,0)+1
 
@@ -906,11 +863,17 @@ def _render_all_points(config,config_id):
     return True
 
 
-def _render_plan_constraint_editor(config: dict, config_id: str) -> bool:
+def _render_plan_constraint_editor(
+    config: dict,
+    config_id: str,
+    *,
+    show_heading: bool = True,
+) -> bool:
     building = config["ExistingBuilding"]
     environment = config["AdaptiveReuseEnvironment"]
     boundary = building["boundary"]
-    st.markdown("### 二维原始平面与前期约束标注")
+    if show_heading:
+        st.markdown("### 二维原始平面与前期约束标注")
     st.caption('参数表与画布共用一份构件数据。有效修改自动保存到 YAML 并双向同步；新增表格行请先补全必填数据。')
     stage_valid = _render_floor_partition_section(config, config_id)
     stage_is_floor_partition = _is_floor_partition_stage(config)
@@ -939,13 +902,13 @@ def _render_plan_constraint_editor(config: dict, config_id: str) -> bool:
                 st.error(f"无法读取该图片：{exc}")
         if building.get("plan_image"):
             st.caption(f"当前底图：{building['plan_image']}")
-            if st.button("恢复系统生成的堂屋原始平面", use_container_width=True):
+            if st.button("恢复系统生成的住宅原始平面", use_container_width=True):
                 building.pop("plan_image", None)
                 save_config(config, config_id)
                 st.session_state[f"{config_id}_ar_canvas_revision"] = st.session_state.get(f"{config_id}_ar_canvas_revision", 0) + 1
                 st.rerun()
         else:
-            st.caption("当前底图：系统根据原堂屋及各原有房间自动生成的二维平面")
+            st.caption("当前底图：系统根据既有住宅及各原有房间自动生成的二维平面")
     with type_col:
         tools_row=st.columns(4)
         type_options = [k for k in CONSTRAINT_STYLES if k != 'core']
@@ -1052,7 +1015,20 @@ def _render_plan_constraint_editor(config: dict, config_id: str) -> bool:
             display_toolbar=True,
             key=canvas_key,
         )
-        st.caption('统一点编辑：橙色为边界，棕色为原房间，蓝色半透明为初始智能体，紫色为种子。角点调尺寸、中心点平移；拖动智能体种子会整体平移该区域。墙线端点与左右厚度点独立可拖。重叠时选择图层和对象 ID。原房间/初始区域保持矩形；拖动不改变图节点关系。')
+        st.caption('观看操作：鼠标滚轮缩放画布，按住鼠标中键或 Alt + 左键拖动可平移，画布下方可缩小、放大或重置；这些操作不会改变实际尺寸。外轮廓尺寸线为只读标注，不参与结构约束。统一点编辑：橙色为边界，棕色为原房间，蓝色半透明为初始智能体，紫色为种子。角点调尺寸、中心点平移；拖动智能体种子会整体平移该区域。墙线端点与左右厚度点独立可拖。重叠时选择图层和对象 ID。原房间/初始区域保持矩形；拖动不改变图节点关系。')
+        if config.get('InteriorTrainingEnvironment'):
+            legend_items=[]
+            for room in config.get('TargetSpaces',[]):
+                if room.get('role') == 'residual':
+                    continue
+                swatch=FUNCTION_ROOM_COLORS.get(room.get('id'),('#90a4ae',''))[0]
+                legend_items.append(
+                    f"<span style='display:inline-flex;align-items:center;gap:7px;margin:4px 18px 4px 0;'>"
+                    f"<span style='width:18px;height:18px;border-radius:3px;background:{swatch};border:1px solid #456;'></span>"
+                    f"{escape(str(room.get('name',room.get('id',''))))}</span>"
+                )
+            st.markdown("<div style='display:flex;flex-wrap:wrap;align-items:center'><b style='margin-right:18px'>功能空间图例</b>"+''.join(legend_items)+"</div>",unsafe_allow_html=True)
+            st.caption('未着色的剩余可用空间作为客厅，不设置独立客厅色块。')
         ready_key = f'{config_id}_structure_canvas_ready'
         if canvas.json_data is not None and st.session_state.get(ready_key) != canvas_key:
             raw = canvas.json_data.get('objects', [])
@@ -1093,7 +1069,7 @@ def _render_plan_constraint_editor(config: dict, config_id: str) -> bool:
             _render_relation_graph(config, graph_height=relation_graph_height)
         else:
             st.markdown("#### 楼层分区规则覆盖")
-            st.caption("橙色区域为根据交通核与输入参数自动生成的门前走道；深红短线为规则求得的各户门。")
+            st.caption("橙色区域为贴交通核开口一侧生成的最小门前走道：长度按户门宽与隐私门距收敛，一层一户时只保留核门前门厅，不再整圈包裹交通核；深红短线为规则求得的各户门。")
     return editor_valid and stage_valid
 
 
@@ -1243,6 +1219,13 @@ def _render_floor_partition_section(config: dict, config_id: str) -> bool:
     )
     floor["enabled"] = _is_floor_partition_stage(config)
     st.caption("这里决定当前工作台训练的是整层功能分区，还是已切出的单个户型内部房间。")
+    if not floor["enabled"]:
+        interior = config.get("InteriorTrainingEnvironment", {})
+        if interior:
+            st.info(
+                f"当前户型内部训练环境：{float(interior.get('width', 5)):g} × "
+                f"{float(interior.get('height', 8)):g} 米（{float(interior.get('area', 40)):g} ㎡）"
+            )
     floor["program_type"] = st.selectbox(
         "楼层功能分区类型",
         ["residential", "office"],
@@ -1385,9 +1368,12 @@ def _render_floor_partition_section(config: dict, config_id: str) -> bool:
         return False
 
 
-def render_adaptive_reuse_config_page(config: dict, config_id: str) -> None:
-    st.subheader("传统堂屋住宅适应性更新环境")
-    st.caption("依据论文第 3.1—3.6 节：从传统堂屋住宅原始状态出发，保留结构参与每一步决策，现代住宅功能空间作为多个智能体协同调整。")
+def render_adaptive_reuse_config_page(
+    config: dict,
+    config_id: str,
+    *,
+    include_environment: bool = True,
+) -> None:
     notice = st.session_state.pop(f"{config_id}_auto_repair_notice", None)
     if notice:
         level = notice.get("level", "success")
@@ -1452,7 +1438,9 @@ def render_adaptive_reuse_config_page(config: dict, config_id: str) -> None:
             environment["success_patience"] = int(st.number_input("连续满足步数", 1, value=int(environment.get("success_patience", 8)), key=f"{config_id}_ar_patience", disabled=seed_mode))
             environment["randomize_initial"] = st.checkbox("训练时随机扰动初始位置", value=bool(environment.get("randomize_initial", True)), key=f"{config_id}_ar_random", disabled=seed_mode)
 
-    config_valid = _render_plan_constraint_editor(config, config_id)
+    config_valid = True
+    if include_environment:
+        config_valid = _render_plan_constraint_editor(config, config_id)
 
     st.markdown("### 奖励权重")
     st.caption("这里只保留论文方法对应的基础奖励项，不设“额外奖励”分组。")
@@ -1464,27 +1452,36 @@ def render_adaptive_reuse_config_page(config: dict, config_id: str) -> None:
         with reward_columns[index % 2]:
             weights[key] = float(st.slider(label, 0.0, 10.0, float(weights.get(key, 1.0)), 0.1, key=f"{config_id}_ar_reward_{key}"))
 
+    if not include_environment:
+        if st.button("保存参数配置", type="primary", use_container_width=True):
+            try:
+                saved_path = save_config(config, config_id)
+                st.success(f"参数配置已保存：{saved_path}")
+            except Exception as exc:
+                st.error(f"参数配置未保存：{exc}")
+        return
+
     repair_col, save_col, preview_col = st.columns(3)
     with repair_col:
         if st.button("自动修复初始布局并保存", use_container_width=True, disabled=(not config_valid) or stage_is_floor_partition):
             try:
-                repaired_config, repairs, info = _auto_repair_targets_config(config, int(training.get("seed", 42)))
-                saved_path = save_config(repaired_config, config_id)
-                config["TargetSpaces"] = repaired_config["TargetSpaces"]
+                rect_repairs, seed_fixes, repair_error = repair_conflicts_and_save(config, config_id, int(training.get("seed", 42)))
+                if repair_error is not None:
+                    raise repair_error
                 st.session_state[f"{config_id}_ar_canvas_revision"] = st.session_state.get(f"{config_id}_ar_canvas_revision", 0) + 1
-                if repairs:
+                if rect_repairs or seed_fixes:
                     labels = "；".join(
-                        f"{item['space_id']}: {item['from_rect']} -> {item['to_rect']}"
-                        for item in repairs
+                        [f"{item['space_id']}: {item['from_rect']} -> {item['to_rect']}" for item in rect_repairs]
+                        + [f"{item['space_id']} 种子: {item['from']} -> {item['to']}" for item in seed_fixes]
                     )
                     st.session_state[f"{config_id}_auto_repair_notice"] = {
                         "level": "success",
-                        "message": f"已自动修复 {len(repairs)} 个智能体初始布局并保存到 YAML：{saved_path}\n{labels}",
+                        "message": f"已自动修复冲突布局并保存到 YAML：\n{labels}",
                     }
                 else:
                     st.session_state[f"{config_id}_auto_repair_notice"] = {
                         "level": "info",
-                        "message": f"当前初始布局已合法，无需修复；已保存：{saved_path}",
+                        "message": "当前初始布局已合法，无需修复。",
                     }
                 st.rerun()
             except Exception as exc:
@@ -1552,5 +1549,187 @@ def render_adaptive_reuse_config_page(config: dict, config_id: str) -> None:
         metric_columns[2].metric("原空间利用率", f"{metrics['original_reuse']:.0%}")
         metric_columns[3].metric("硬约束冲突", int(metrics["hard_conflicts"]))
         st.caption(f"网格矩阵尺寸：{info['grid_matrix'].shape[1]} × {info['grid_matrix'].shape[0]}；智能体数：{env.num_agents}；动作数：{len(info['action_names'])}")
+    except Exception as exc:
+        st.error(f"当前参数无法构成有效环境：{exc}")
+
+
+def _render_collapsible_subheader(title: str, state_key: str) -> bool:
+    """Render an H2 section title with an explicit compact/expand control."""
+    collapsed = bool(st.session_state.get(state_key, False))
+    title_column, toggle_column = st.columns([10, 1.35], vertical_alignment="center")
+    with title_column:
+        st.markdown(f"## {title}")
+    with toggle_column:
+        if st.button(
+            "展开 ▼" if collapsed else "收起 ▲",
+            key=f"{state_key}_toggle",
+            use_container_width=True,
+        ):
+            st.session_state[state_key] = not collapsed
+            st.rerun()
+    return not collapsed
+
+
+def render_adaptive_reuse_environment_page(config: dict, config_id: str) -> None:
+    """Render environment construction and all environment-derived previews."""
+    st.subheader("环境搭建")
+    st.caption("在同一工作区完成原始平面标注、图节点关系检查、环境校验与成图预览。")
+
+    notice = st.session_state.pop(f"{config_id}_auto_repair_notice", None)
+    if notice:
+        level = notice.get("level", "success")
+        if level == "info":
+            st.info(notice["message"])
+        elif level == "warning":
+            st.warning(notice["message"])
+        else:
+            st.success(notice["message"])
+
+    training = _ensure_training_stage_defaults(config)
+    floor_partition = _ensure_floor_partition_defaults(config)
+    training["training_stage"] = st.session_state.get(
+        f"{config_id}_training_stage",
+        training.get("training_stage", "room_training"),
+    )
+    floor_partition["program_type"] = st.session_state.get(
+        f"{config_id}_floor_partition_type",
+        floor_partition.get("program_type", "residential"),
+    )
+    floor_partition["enabled"] = _is_floor_partition_stage(config)
+
+    editor_open = _render_collapsible_subheader(
+        "二维原始平面与前期约束标注",
+        f"{config_id}_environment_editor_collapsed",
+    )
+    config_valid = (
+        _render_plan_constraint_editor(config, config_id, show_heading=False)
+        if editor_open
+        else True
+    )
+    stage_is_floor_partition = _is_floor_partition_stage(config)
+    seed_settings = config.setdefault("SeedGrowth", {})
+    seed_mode = False if stage_is_floor_partition else bool(seed_settings.get("enabled", True))
+
+    repair_col, save_col, preview_col = st.columns(3)
+    with repair_col:
+        if st.button(
+            "自动修复初始布局并保存",
+            use_container_width=True,
+            disabled=(not config_valid) or stage_is_floor_partition,
+            key=f"{config_id}_environment_auto_repair",
+        ):
+            try:
+                rect_repairs, seed_fixes, repair_error = repair_conflicts_and_save(
+                    config,
+                    config_id,
+                    int(training.get("seed", 42)),
+                )
+                if repair_error is not None:
+                    raise repair_error
+                st.session_state[f"{config_id}_ar_canvas_revision"] = (
+                    st.session_state.get(f"{config_id}_ar_canvas_revision", 0) + 1
+                )
+                if rect_repairs or seed_fixes:
+                    labels = "；".join(
+                        [f"{item['space_id']}: {item['from_rect']} -> {item['to_rect']}" for item in rect_repairs]
+                        + [f"{item['space_id']} 种子: {item['from']} -> {item['to']}" for item in seed_fixes]
+                    )
+                    st.session_state[f"{config_id}_auto_repair_notice"] = {
+                        "level": "success",
+                        "message": f"已自动修复冲突布局并保存到 YAML：\n{labels}",
+                    }
+                else:
+                    st.session_state[f"{config_id}_auto_repair_notice"] = {
+                        "level": "info",
+                        "message": "当前初始布局已合法，无需修复。",
+                    }
+                st.rerun()
+            except Exception as exc:
+                st.error(f"自动修复失败：{exc}")
+    with save_col:
+        if st.button(
+            "保存既有建筑环境",
+            type="primary",
+            use_container_width=True,
+            disabled=not config_valid,
+            key=f"{config_id}_environment_save",
+        ):
+            try:
+                if config.get("FloorPartition", {}).get("enabled", False):
+                    run_residential_floor_partition(config)
+                elif seed_mode:
+                    from core.seed_growth.environment import SeedLayoutEnv
+
+                    SeedLayoutEnv(config)
+                else:
+                    if any(
+                        edge["type"] not in ("adjacent", "separate", "none")
+                        for edge in config["FunctionalRelations"]
+                    ):
+                        raise ValueError(
+                            "connected 请启用图种子加速优化；矩形直接优化仅支持 adjacent / separate / none"
+                        )
+                    AdaptiveReuseEnv(config).reset(seed=int(training.get("seed", 42)))
+                saved_path = save_config(config, config_id)
+                st.success(f"环境校验通过并已保存：{saved_path}")
+            except Exception as exc:
+                st.error(f"环境未保存：{exc}")
+    with preview_col:
+        st.button(
+            "刷新环境预览",
+            use_container_width=True,
+            key=f"{config_id}_environment_refresh",
+        )
+
+    preview_open = _render_collapsible_subheader(
+        "环境预览",
+        f"{config_id}_environment_preview_collapsed",
+    )
+    if not preview_open:
+        return
+    if stage_is_floor_partition and config_valid:
+        st.markdown("#### 楼层分区中间结果预览")
+        try:
+            _, partition_result = run_residential_floor_partition(config)
+            metric_columns = st.columns(4)
+            metric_columns[0].metric("户数", len(partition_result.unit_polygons))
+            metric_columns[1].metric("走道面积", f"{partition_result.corridor.area:.1f} ㎡")
+            metric_columns[2].metric("剩余可分配面积", f"{partition_result.allocatable_space.area:.1f} ㎡")
+            metric_columns[3].metric("面积缩放系数", f"{partition_result.area_scale:.3f}")
+        except Exception as exc:
+            st.error(f"楼层分区预览失败：{exc}")
+        return
+
+    from gui.seed_page import render_seed_preview, render_seed_results
+
+    if seed_mode and config_valid:
+        render_seed_preview(config)
+
+    render_seed_results(config_id)
+    st.markdown("#### 原矩形基础布局")
+    try:
+        preview_config = yaml.safe_load(yaml.safe_dump(config, allow_unicode=True))
+        preview_config["AdaptiveReuseEnvironment"]["randomize_initial"] = False
+        env = AdaptiveReuseEnv(_private_rectangle_config(preview_config))
+        _, info = env.reset(seed=int(training.get("seed", 42)))
+        if info.get("initial_repairs"):
+            st.info(
+                "预览已自动修复初始布局："
+                + "；".join(
+                    f"{item['space_id']} ({item['action_steps']} 步)"
+                    for item in info["initial_repairs"]
+                )
+            )
+        st.pyplot(env.render(show_original=True), use_container_width=True)
+        metrics = info["metrics"]
+        metric_columns = st.columns(4)
+        metric_columns[0].metric("面积达标率", f"{metrics['area_compliance']:.0%}")
+        metric_columns[1].metric("形态达标率", f"{metrics['shape_compliance']:.0%}")
+        metric_columns[2].metric("原空间利用率", f"{metrics['original_reuse']:.0%}")
+        metric_columns[3].metric("硬约束冲突", int(metrics["hard_conflicts"]))
+        st.caption(
+            f"网格矩阵尺寸：{info['grid_matrix'].shape[1]} × {info['grid_matrix'].shape[0]}；"
+            f"智能体数：{env.num_agents}；动作数：{len(info['action_names'])}"
+        )
     except Exception as exc:
         st.error(f"当前参数无法构成有效环境：{exc}")

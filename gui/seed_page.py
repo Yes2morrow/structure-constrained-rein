@@ -65,14 +65,22 @@ def render_seed_settings(config,config_id):
         st.caption('续训沿用该目录保存的配置和节点 ID；训练轮数表示目标累计轮数。本页其他改动用于新训练。加速策略动作维度不同，矩形策略权重不能直接续训；原空间与初始矩形仍沿用同一份配置。')
         try:
             rooms=apply_seed_rows(config['TargetSpaces'],frame.to_dict('records'),yaml.safe_load(limits) or {})
-            trial=dict(config,TargetSpaces=rooms)
-            # Relations are validated by the final save, after their editor.
-            build_problem(dict(trial,FunctionalRelations=[]))
-            config['TargetSpaces']=rooms
-            return True
         except (ValueError,TypeError,KeyError,yaml.YAMLError) as exc:
             st.error(f'种子参数未应用：{exc}')
             return False
+        trial=dict(config,TargetSpaces=rooms)
+        try:
+            # Relations are validated by the final save, after their editor.
+            build_problem(dict(trial,FunctionalRelations=[]))
+        except (ValueError,KeyError,TypeError) as exc:
+            # 与固定结构冲突等几何问题交给“自动修复初始布局并保存”处理，不阻塞画布交互。
+            repairable=('种子位于边界外','种子占用客厅户门内侧预留区域','户门内侧预留区域被固定结构阻挡','房间最小面积总和超过扣除固定结构后的自由面积')
+            if not any(key in str(exc) for key in repairable):
+                st.error(f'种子参数未应用：{exc}')
+                return False
+            st.warning(f'{exc}。画布保持可编辑；请点击“自动修复初始布局并保存”，系统会把冲突房间挪到不冲突的位置后再保存。')
+        config['TargetSpaces']=rooms
+        return True
 
 
 def _draw(ax,geometry,color):
@@ -110,7 +118,10 @@ def render_seed_preview(config):
             dx,dy=problem.entrance.xy; ax.plot(dx,dy,color='#00897b',lw=5,label='入口→客厅')
         _draw(ax,problem.fixed,'#455a64')
         x,y=problem.boundary.exterior.xy; ax.plot(x,y,color='black'); ax.set_aspect('equal')
-        st.pyplot(fig); plt.close(fig)
+        _, preview_column, _ = st.columns([1, 2, 1])
+        with preview_column:
+            st.pyplot(fig, use_container_width=True)
+        plt.close(fig)
         st.caption('虚线是目标图关系，不表示已经共边；颜色区域只代表快速估算。绿色菱形是公共区域节点，黑点才是可移动种子。')
         st.dataframe(pd.DataFrame(estimate['relations']),hide_index=True)
     except Exception as exc:

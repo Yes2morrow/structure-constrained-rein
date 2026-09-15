@@ -3,6 +3,7 @@ import pandas as pd
 import streamlit as st
 from core.envs.structure_geometry import parameter_rows, build_structures
 from gui.config_store import load_config, save_config
+from gui.layout_repair import repair_conflicts_and_save, queue_repair_notice
 from gui.structure_canvas import signature
 from gui.boundary_editor import render_boundary_editor
 
@@ -14,6 +15,9 @@ def save_structures(config, config_id, objects):
     save_config(saved, config_id)
     config['ExistingBuilding']['fixed_objects'] = objects
     config['ExistingBuilding']['structure_schema_version'] = 2
+    # 交通核/墙柱等结构改动可能把智能体房间压进固定结构：自动挪回合法位置并保存。
+    rect_repairs, seed_fixes, repair_error = repair_conflicts_and_save(config, config_id)
+    queue_repair_notice(config_id, rect_repairs, seed_fixes, repair_error)
     key = f'{config_id}_ar_canvas_revision'
     st.session_state[key] = st.session_state.get(key, 0) + 1
 

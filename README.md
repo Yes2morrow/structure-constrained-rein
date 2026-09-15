@@ -158,7 +158,7 @@ Windows 双击 `start_gui.bat`。根目录 `main.py` 已恢复，可继续使用
 ```
 
 三个页签：参数配置 / 训练监控 / 布局预览。顶部可切换配置编号；当配置的
-`ProjectType: adaptive_reuse` 时会切换到"传统堂屋住宅更新"界面。
+`ProjectType: adaptive_reuse` 时会切换到“既有住宅更新”界面。
 
 ### 自测
 

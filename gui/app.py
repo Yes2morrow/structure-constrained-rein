@@ -3,7 +3,10 @@ import time
 import streamlit as st
 
 from gui.config_page import render_config_page
-from gui.adaptive_reuse_page import render_adaptive_reuse_config_page
+from gui.adaptive_reuse_page import (
+    render_adaptive_reuse_config_page,
+    render_adaptive_reuse_environment_page,
+)
 from gui.config_store import load_config
 from gui.monitor_page import render_monitor_page
 from gui.patches import apply_streamlit_patches
@@ -28,12 +31,13 @@ def run_app() -> None:
         st.stop()
 
     is_adaptive_reuse = config.get("ProjectType") == "adaptive_reuse"
-    st.title("传统堂屋住宅更新强化学习工作台" if is_adaptive_reuse else "房屋布局强化学习工作台")
-    st.caption("从传统堂屋住宅原始平面出发，在保留结构约束下生成现代居住功能布局。" if is_adaptive_reuse else "配置、训练、监控与结果预览统一收敛到同一工作流中。")
+    st.title("城市更新生成式设计工作平台" if is_adaptive_reuse else "房屋布局强化学习工作台")
+    if not is_adaptive_reuse:
+        st.caption("配置、训练、监控与结果预览统一收敛到同一工作流中。")
 
     render_sidebar_controls(config, config_id)
 
-    view_options = ["参数配置", "训练监控", "布局预览"]
+    view_options = (["环境搭建"] if is_adaptive_reuse else []) + ["参数配置", "训练监控", "布局预览"]
     current_view = st.session_state.get("main_view", "参数配置")
     if current_view not in view_options:
         current_view = "参数配置"
@@ -52,9 +56,11 @@ def run_app() -> None:
     configured_episodes = int(training_conf.get("episodes", 0))
     render_enabled = bool(config.get("Render", False))
 
-    if st.session_state.main_view == "参数配置":
+    if st.session_state.main_view == "环境搭建":
+        render_adaptive_reuse_environment_page(config, config_id)
+    elif st.session_state.main_view == "参数配置":
         if is_adaptive_reuse:
-            render_adaptive_reuse_config_page(config, config_id)
+            render_adaptive_reuse_config_page(config, config_id, include_environment=False)
         else:
             render_config_page(config, config_id)
     elif st.session_state.main_view == "训练监控":

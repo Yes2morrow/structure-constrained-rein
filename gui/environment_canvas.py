@@ -50,6 +50,15 @@ def color(key):
 
 DISPLAY_LAYERS = {'boundary':'场地边界','original':'原有房间','agent':'智能体初始区域','seed':'智能体种子点','column':'柱','shear_wall':'剪力墙','load_bearing_wall':'承重墙','core':'核心筒','traffic_core':'交通核区域','retained_circulation':'保留交通空间','fixed':'其他固定构件'}
 
+FUNCTION_ROOM_COLORS = {
+    'living': ('#f2f0f0', 'rgba(242,240,240,0.88)'),
+    'master_bedroom': ('#fff0a5', 'rgba(255,240,165,0.82)'),
+    'second_bedroom': ('#fff0a5', 'rgba(255,240,165,0.82)'),
+    'bathroom': ('#bdd9f5', 'rgba(189,217,245,0.82)'),
+    'balcony': ('#d7d483', 'rgba(215,212,131,0.82)'),
+    'kitchen': ('#efd6d1', 'rgba(239,214,209,0.84)'),
+}
+
 
 def control_layer(key, config):
     if key[0] in ('wall','fixed','fixed_rect','column'):
@@ -69,18 +78,46 @@ def scene(config,width,height,styles,layer='all',selected=None,display=None):
         obj.update(selectable=False,evented=False,**appearance(item.get('type','fixed')))
     points=[dict(x=ox+x*scale,y=oy-y*scale) for x,y in b['boundary']]
     objects.append(dict(type='polyline',points=points+[points[0]],left=min(p['x'] for p in points),top=min(p['y'] for p in points),fill='',stroke='#182c3d',strokeWidth=4,selectable=False,evented=False,**appearance('boundary')))
+    # 外轮廓尺寸仅作为只读图示，不写入结构对象，也不参与训练约束。
+    xs,ys=zip(*b['boundary']); min_x,max_x,min_y,max_y=min(xs),max(xs),min(ys),max(ys)
+    left,right=ox+min_x*scale,ox+max_x*scale
+    top,bottom=oy-max_y*scale,oy-min_y*scale
+    inset=13
+    vertical_dimension_x=left-30
+    dimension_style=dict(fill='',stroke='#455a64',strokeWidth=1.5,selectable=False,evented=False)
+    def dimension_line(coords):
+        ps=[dict(x=x,y=y) for x,y in coords]
+        return dict(dimension_style,type='polyline',points=ps,left=min(p['x'] for p in ps),top=min(p['y'] for p in ps))
+    objects += [
+        dimension_line([(left,bottom+inset),(right,bottom+inset)]),
+        dimension_line([(left,bottom+inset-5),(left,bottom+inset+5)]),
+        dimension_line([(right,bottom+inset-5),(right,bottom+inset+5)]),
+        dimension_line([(vertical_dimension_x,top),(vertical_dimension_x,bottom)]),
+        dimension_line([(vertical_dimension_x-5,top),(vertical_dimension_x+5,top)]),
+        dimension_line([(vertical_dimension_x-5,bottom),(vertical_dimension_x+5,bottom)]),
+        dict(type='text',text=f'{max_x-min_x:g} m',left=(left+right)/2,top=bottom+inset+3,
+             originX='center',originY='top',fontSize=14,fontWeight='bold',fill='#263238',
+             backgroundColor='rgba(255,255,255,0.82)',selectable=False,evented=False),
+        dict(type='text',text=f'{max_y-min_y:g} m',left=vertical_dimension_x-9,top=(top+bottom)/2,
+             originX='center',originY='center',angle=-90,fontSize=14,fontWeight='bold',fill='#263238',
+             backgroundColor='rgba(255,255,255,0.82)',selectable=False,evented=False),
+    ]
     door=[dict(x=ox+x*scale,y=oy-y*scale) for x,y in entrance_points(b)]
     if len(door)>=2:
         objects.append(dict(type='polyline',points=door,left=min(p['x'] for p in door),top=min(p['y'] for p in door),fill='',stroke='#2d6f9f',strokeWidth=7,selectable=False,evented=False,**appearance('boundary')))
     for group,items,rect_key,fill in [('original',b.get('original_spaces',[]),'rect','rgba(244,180,170,0.55)'),
                                      ('agent',config.get('TargetSpaces',[]),'initial_rect','rgba(66,165,245,0.30)')]:
         for item in items:
+            colorized = group=='agent' and bool(config.get('InteriorTrainingEnvironment'))
             if group=='agent' and item.get('role')=='residual': continue
             x1,y1,x2,y2=item[rect_key]
+            room_fill=(FUNCTION_ROOM_COLORS['living'][1] if group=='original' and config.get('InteriorTrainingEnvironment') else
+                       FUNCTION_ROOM_COLORS.get(item.get('id'),('#90a4ae','rgba(144,164,174,0.72)'))[1] if colorized else fill)
             objects.append(dict(type='rect',left=ox+x1*scale,top=oy-y2*scale,width=(x2-x1)*scale,height=(y2-y1)*scale,
-                                fill=fill,stroke='#1565c0' if group=='agent' else '#8d6e63',strokeWidth=1,selectable=False,evented=False,**appearance(group)))
-            objects.append(dict(type='text',text=('初始·' if group=='agent' else '')+item.get('name',item['id']),
-                                left=ox+x1*scale+4,top=oy-y2*scale+4,fontSize=12,fill='#123456',selectable=False,evented=False,visible=appearance(group)['visible'] and display.get('labels',(True,0))[0],opacity=appearance(group)['opacity']))
+                                fill=room_fill,stroke='#174a73' if group=='agent' else '#8d6e63',strokeWidth=1.5 if colorized else 1,selectable=False,evented=False,**appearance(group)))
+            if not config.get('InteriorTrainingEnvironment'):
+                objects.append(dict(type='text',text=('初始·' if group=='agent' else '')+item.get('name',item['id']),
+                                    left=ox+x1*scale+4,top=oy-y2*scale+4,fontSize=12,fill='#123456',selectable=False,evented=False,visible=appearance(group)['visible'] and display.get('labels',(True,0))[0],opacity=appearance(group)['opacity']))
     palette=dict(boundary='#ef6c00',original='#a1887f',agent='#1976d2',seed='#8e24aa',column='#455a64',wall='#c62828',fixed='#546e7a',fixed_rect='#546e7a',door='#00897b')
     for key,p in controls(config).items():
         shown=appearance(control_layer(key,config))
