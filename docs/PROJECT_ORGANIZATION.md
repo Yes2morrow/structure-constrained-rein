@@ -39,3 +39,12 @@
 路径更正：种子成图直接位于 results2/seed_experimental/<运行名>/layout.png（同目录 SVG、JSON），不再使用单独 results/seed_growth 目录。
 
 兼容恢复：用户要求恢复根目录 main.py，现已恢复且启动器使用该入口。checks 的图片/JSON/日志迁到 evidence/，独立检查迁到 smoke/，基准迁到 benchmarks/，人工评估移到 gui/manual_env.py。此条替代前文根目录只四个文件以及 manual_env.py 旧位置说明。
+
+## 增量整理记录（2026-09-16 版本 v0.2.2）
+
+- 新增根目录 `pyproject.toml`，把项目元数据、`pytest` 测试入口与 `ruff` 静态检查配置收拢到统一位置，便于后续按标准 Python 工程方式维护。
+- 新增 `gui/adaptive_reuse_support.py`，把既有住宅页面重复出现的自动修复提示、自动修复执行与折叠标题逻辑提取成公共辅助模块，减少 `gui/adaptive_reuse_page.py` 中的重复代码。
+- `gui/app.py` 改为按主视图延迟导入页面模块，只在真正进入“环境搭建 / 参数配置 / 训练监控 / 布局预览”时加载对应页面，减少启动阶段的一次性导入开销。
+- `.gitignore` 补充 `.pytest_cache/`、`.ruff_cache/`、`build/`、`dist/`，避免新增工程化配置后把本地工具缓存误入库。
+
+本次整理不改变现有训练方法、环境约束或页面交互语义，目标是让目录结构更清晰、入口更轻、后续维护成本更低。

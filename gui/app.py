@@ -2,19 +2,45 @@ import time
 
 import streamlit as st
 
-from gui.config_page import render_config_page
-from gui.adaptive_reuse_page import (
-    render_adaptive_reuse_config_page,
-    render_adaptive_reuse_environment_page,
-)
 from gui.config_store import load_config
-from gui.monitor_page import render_monitor_page
 from gui.patches import apply_streamlit_patches
-from gui.preview_page import render_preview_page
 from gui.sidebar import render_config_selector, render_sidebar_controls
 from gui.state import init_session_state
 from gui.theme import apply_theme, configure_page
 from gui.training_service import get_latest_log, is_process_running
+
+
+def _render_environment_tab(config: dict, config_id: str) -> None:
+    """仅在进入环境页时加载既有住宅环境搭建模块。"""
+    from gui.adaptive_reuse_page import render_adaptive_reuse_environment_page
+
+    render_adaptive_reuse_environment_page(config, config_id)
+
+
+def _render_config_tab(config: dict, config_id: str, is_adaptive_reuse: bool) -> None:
+    """按当前项目类型延迟加载参数页模块。"""
+    if is_adaptive_reuse:
+        from gui.adaptive_reuse_page import render_adaptive_reuse_config_page
+
+        render_adaptive_reuse_config_page(config, config_id, include_environment=False)
+        return
+    from gui.config_page import render_config_page
+
+    render_config_page(config, config_id)
+
+
+def _render_monitor_tab(agent_name: str, configured_episodes: int, render_enabled: bool) -> None:
+    """仅在监控页加载训练监控模块。"""
+    from gui.monitor_page import render_monitor_page
+
+    render_monitor_page(get_latest_log(), agent_name, configured_episodes, render_enabled)
+
+
+def _render_preview_tab() -> None:
+    """仅在预览页加载结果展示模块。"""
+    from gui.preview_page import render_preview_page
+
+    render_preview_page()
 
 
 def run_app() -> None:
@@ -57,31 +83,25 @@ def run_app() -> None:
     render_enabled = bool(config.get("Render", False))
 
     if st.session_state.main_view == "环境搭建":
-        render_adaptive_reuse_environment_page(config, config_id)
+        _render_environment_tab(config, config_id)
     elif st.session_state.main_view == "参数配置":
-        if is_adaptive_reuse:
-            render_adaptive_reuse_config_page(config, config_id, include_environment=False)
-        else:
-            render_config_page(config, config_id)
+        _render_config_tab(config, config_id, is_adaptive_reuse)
     elif st.session_state.main_view == "训练监控":
-        def _render_monitor_tab() -> None:
-            render_monitor_page(get_latest_log(), agent_name, configured_episodes, render_enabled)
-
         if hasattr(st, "fragment"):
             if is_running:
                 @st.fragment(run_every="2s")
                 def render_monitor_fragment() -> None:
-                    _render_monitor_tab()
+                    _render_monitor_tab(agent_name, configured_episodes, render_enabled)
             else:
                 @st.fragment
                 def render_monitor_fragment() -> None:
-                    _render_monitor_tab()
+                    _render_monitor_tab(agent_name, configured_episodes, render_enabled)
 
             render_monitor_fragment()
         else:
-            _render_monitor_tab()
+            _render_monitor_tab(agent_name, configured_episodes, render_enabled)
     else:
-        render_preview_page()
+        _render_preview_tab()
 
     if is_running and not hasattr(st, "fragment"):
         time.sleep(2)

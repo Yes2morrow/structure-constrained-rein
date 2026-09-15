@@ -28,10 +28,16 @@ from common.config_manager import get_config_dir
 from core.envs import AdaptiveReuseEnv, summarize_target_area_budget, redistribute_target_max_areas
 from core.floor_partition import build_floor_partition_problem, run_residential_floor_partition
 from gui.config_store import load_config, save_config
-from gui.layout_repair import (apply_env_repairs_to_targets as _apply_env_repairs_to_targets,
-                               auto_repair_targets_config as _auto_repair_targets_config,
-                               private_rectangle_config as _private_rectangle_config,
-                               repair_conflicts_and_save, queue_repair_notice)
+from gui.layout_repair import (
+    private_rectangle_config as _private_rectangle_config,
+    queue_repair_notice,
+    repair_conflicts_and_save,
+)
+from gui.adaptive_reuse_support import (
+    consume_auto_repair_notice,
+    render_collapsible_subheader,
+    run_auto_repair_and_rerun,
+)
 from gui.structure_editor import render_structure_editor, save_structures
 from gui.boundary_editor import boundary_handles, parse_boundary_handles, save_boundary
 from gui.environment_canvas import scene, parse_scene, controls as environment_controls, color as control_color, entrance_points, DISPLAY_LAYERS, FUNCTION_ROOM_COLORS
@@ -1374,15 +1380,7 @@ def render_adaptive_reuse_config_page(
     *,
     include_environment: bool = True,
 ) -> None:
-    notice = st.session_state.pop(f"{config_id}_auto_repair_notice", None)
-    if notice:
-        level = notice.get("level", "success")
-        if level == "info":
-            st.info(notice["message"])
-        elif level == "warning":
-            st.warning(notice["message"])
-        else:
-            st.success(notice["message"])
+    consume_auto_repair_notice(config_id)
 
     with st.expander("统一方法：原矩形基础 → 图种子加速优化 → 约束精确成图", expanded=False):
         st.markdown(
@@ -1465,25 +1463,7 @@ def render_adaptive_reuse_config_page(
     with repair_col:
         if st.button("自动修复初始布局并保存", use_container_width=True, disabled=(not config_valid) or stage_is_floor_partition):
             try:
-                rect_repairs, seed_fixes, repair_error = repair_conflicts_and_save(config, config_id, int(training.get("seed", 42)))
-                if repair_error is not None:
-                    raise repair_error
-                st.session_state[f"{config_id}_ar_canvas_revision"] = st.session_state.get(f"{config_id}_ar_canvas_revision", 0) + 1
-                if rect_repairs or seed_fixes:
-                    labels = "；".join(
-                        [f"{item['space_id']}: {item['from_rect']} -> {item['to_rect']}" for item in rect_repairs]
-                        + [f"{item['space_id']} 种子: {item['from']} -> {item['to']}" for item in seed_fixes]
-                    )
-                    st.session_state[f"{config_id}_auto_repair_notice"] = {
-                        "level": "success",
-                        "message": f"已自动修复冲突布局并保存到 YAML：\n{labels}",
-                    }
-                else:
-                    st.session_state[f"{config_id}_auto_repair_notice"] = {
-                        "level": "info",
-                        "message": "当前初始布局已合法，无需修复。",
-                    }
-                st.rerun()
+                run_auto_repair_and_rerun(config, config_id, int(training.get("seed", 42)))
             except Exception as exc:
                 st.error(f"自动修复失败：{exc}")
     with save_col:
@@ -1551,39 +1531,11 @@ def render_adaptive_reuse_config_page(
         st.caption(f"网格矩阵尺寸：{info['grid_matrix'].shape[1]} × {info['grid_matrix'].shape[0]}；智能体数：{env.num_agents}；动作数：{len(info['action_names'])}")
     except Exception as exc:
         st.error(f"当前参数无法构成有效环境：{exc}")
-
-
-def _render_collapsible_subheader(title: str, state_key: str) -> bool:
-    """Render an H2 section title with an explicit compact/expand control."""
-    collapsed = bool(st.session_state.get(state_key, False))
-    title_column, toggle_column = st.columns([10, 1.35], vertical_alignment="center")
-    with title_column:
-        st.markdown(f"## {title}")
-    with toggle_column:
-        if st.button(
-            "展开 ▼" if collapsed else "收起 ▲",
-            key=f"{state_key}_toggle",
-            use_container_width=True,
-        ):
-            st.session_state[state_key] = not collapsed
-            st.rerun()
-    return not collapsed
-
-
 def render_adaptive_reuse_environment_page(config: dict, config_id: str) -> None:
     """Render environment construction and all environment-derived previews."""
     st.subheader("环境搭建")
     st.caption("在同一工作区完成原始平面标注、图节点关系检查、环境校验与成图预览。")
-
-    notice = st.session_state.pop(f"{config_id}_auto_repair_notice", None)
-    if notice:
-        level = notice.get("level", "success")
-        if level == "info":
-            st.info(notice["message"])
-        elif level == "warning":
-            st.warning(notice["message"])
-        else:
-            st.success(notice["message"])
+    consume_auto_repair_notice(config_id)
 
     training = _ensure_training_stage_defaults(config)
     floor_partition = _ensure_floor_partition_defaults(config)
@@ -1597,7 +1549,7 @@ def render_adaptive_reuse_environment_page(config: dict, config_id: str) -> None
     )
     floor_partition["enabled"] = _is_floor_partition_stage(config)
 
-    editor_open = _render_collapsible_subheader(
+    editor_open = render_collapsible_subheader(
         "二维原始平面与前期约束标注",
         f"{config_id}_environment_editor_collapsed",
     )
@@ -1619,31 +1571,7 @@ def render_adaptive_reuse_environment_page(config: dict, config_id: str) -> None
             key=f"{config_id}_environment_auto_repair",
         ):
             try:
-                rect_repairs, seed_fixes, repair_error = repair_conflicts_and_save(
-                    config,
-                    config_id,
-                    int(training.get("seed", 42)),
-                )
-                if repair_error is not None:
-                    raise repair_error
-                st.session_state[f"{config_id}_ar_canvas_revision"] = (
-                    st.session_state.get(f"{config_id}_ar_canvas_revision", 0) + 1
-                )
-                if rect_repairs or seed_fixes:
-                    labels = "；".join(
-                        [f"{item['space_id']}: {item['from_rect']} -> {item['to_rect']}" for item in rect_repairs]
-                        + [f"{item['space_id']} 种子: {item['from']} -> {item['to']}" for item in seed_fixes]
-                    )
-                    st.session_state[f"{config_id}_auto_repair_notice"] = {
-                        "level": "success",
-                        "message": f"已自动修复冲突布局并保存到 YAML：\n{labels}",
-                    }
-                else:
-                    st.session_state[f"{config_id}_auto_repair_notice"] = {
-                        "level": "info",
-                        "message": "当前初始布局已合法，无需修复。",
-                    }
-                st.rerun()
+                run_auto_repair_and_rerun(config, config_id, int(training.get("seed", 42)))
             except Exception as exc:
                 st.error(f"自动修复失败：{exc}")
     with save_col:
@@ -1681,7 +1609,7 @@ def render_adaptive_reuse_environment_page(config: dict, config_id: str) -> None
             key=f"{config_id}_environment_refresh",
         )
 
-    preview_open = _render_collapsible_subheader(
+    preview_open = render_collapsible_subheader(
         "环境预览",
         f"{config_id}_environment_preview_collapsed",
     )

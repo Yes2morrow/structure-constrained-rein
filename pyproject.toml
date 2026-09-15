@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "structure-constrained-rein"
+version = "0.2.2"
+description = "Structure-constrained reinforcement learning workspace for adaptive reuse layout generation."
+readme = "README.md"
+requires-python = ">=3.11"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["common*", "core*", "gui*", "scripts*"]
+
+[tool.pytest.ini_options]
+testpaths = ["checks"]
+pythonpath = ["."]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+src = ["common", "core", "gui", "scripts", "checks"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
