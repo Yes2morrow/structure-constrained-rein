@@ -1,16 +1,46 @@
 {
-  "config_id": "A1",
-  "geometry_validation": "passed",
-  "length_unit": "m",
-  "area_unit": "m2",
-  "width": 28.578947,
-  "height": 14.960526,
-  "gross_footprint_area": 358.8656448988921,
-  "traffic_core_area": 80.28323276592799,
-  "retained_corridor_area": 10.539473999999998,
-  "retained_corridor_width": 1.5,
-  "retained_corridor_length": 7.026316,
-  "column_count": 16,
-  "free_area": 258.86842200000086,
-  "training_executed": false
+  "valid": true,
+  "errors": [],
+  "units": {
+    "A1_unit_01": {
+      "area": 77.11999999999998,
+      "target_area": 65.57999999999993,
+      "area_error_ratio": 0.1759682830131147,
+      "facade_length": 26.0,
+      "required_facade_length": 9.254399999999997,
+      "facade_per_area": 0.337136929460581,
+      "corners": 4
+    },
+    "A1_unit_02": {
+      "area": 54.03999999999999,
+      "target_area": 65.57999999999993,
+      "area_error_ratio": 0.17596828301311296,
+      "facade_length": 7.0,
+      "required_facade_length": 6.484799999999999,
+      "facade_per_area": 0.1295336787564767,
+      "corners": 6
+    },
+    "A1_unit_03": {
+      "area": 54.03999999999999,
+      "target_area": 65.57999999999993,
+      "area_error_ratio": 0.17596828301311296,
+      "facade_length": 7.0,
+      "required_facade_length": 6.484799999999999,
+      "facade_per_area": 0.1295336787564767,
+      "corners": 6
+    },
+    "A1_unit_04": {
+      "area": 77.11999999999998,
+      "target_area": 65.57999999999993,
+      "area_error_ratio": 0.1759682830131147,
+      "facade_length": 26.0,
+      "required_facade_length": 9.254399999999997,
+      "facade_per_area": 0.337136929460581,
+      "corners": 4
+    }
+  },
+  "unassigned_area": 0.0,
+  "corridor_area": 24.0,
+  "structure_alignment_ratio": 1.0,
+  "daylight_method": "exposed_facade_length_per_net_area_proxy"
 }

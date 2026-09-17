@@ -18,7 +18,9 @@ def _round_coords(coords) -> list[list[float]]:
 
 
 def _polygon_boundary(geometry) -> list[list[float]]:
-    polygon = geometry if geometry.geom_type == "Polygon" else max(geometry.geoms, key=lambda item: item.area)
+    if geometry.geom_type != 'Polygon' or not geometry.is_valid or geometry.is_empty:
+        raise ValueError('拒绝导出不连通或无效区域，不能丢弃小分量')
+    polygon = geometry
     coords = list(polygon.exterior.coords)
     if coords and coords[0] == coords[-1]:
         coords = coords[:-1]
@@ -89,6 +91,11 @@ def _door_positions(door) -> list[list[float]]:
 
 def export_unit_configs(config: dict[str, Any], result: PartitionResult, output_dir: str | Path) -> list[Path]:
     """按户型边界导出下游训练配置。"""
+    from .contracts import build_floor_partition_problem
+    from .quality import validate_partition
+    report=validate_partition(build_floor_partition_problem(config),result)
+    if not report['valid']:
+        raise ValueError('分户结果未通过独立验收，拒绝导出: '+', '.join(report['errors']))
     base_dir = Path(output_dir)
     base_dir.mkdir(parents=True, exist_ok=True)
     fixed_objects = list(config.get("ExistingBuilding", {}).get("fixed_objects", []))
@@ -100,6 +107,8 @@ def export_unit_configs(config: dict[str, Any], result: PartitionResult, output_
         unit_dir = base_dir / unit_id
         unit_dir.mkdir(parents=True, exist_ok=True)
         exported = deepcopy(config)
+        exported['ConfigID']=unit_id
+        exported['ProjectName']=f"{config.get('ProjectName','Floor')} / {unit_id}"
         exported.setdefault("FloorPartitionResult", {})
         exported["FloorPartitionResult"].update(
             {
@@ -115,10 +124,32 @@ def export_unit_configs(config: dict[str, Any], result: PartitionResult, output_
             }
         )
         exported["ExistingBuilding"]["boundary"] = _polygon_boundary(unit_polygon)
-        exported["ExistingBuilding"]["fixed_objects"] = _crop_fixed_objects(fixed_objects, unit_polygon)
+        # Unit geometry is net free space. Use its gross shell to recover column
+        # holes; clipping structures against net space would silently erase them.
+        gross=Polygon(unit_polygon.exterior)
+        exported["ExistingBuilding"]["fixed_objects"] = _crop_fixed_objects(fixed_objects, gross)
+        from shapely.ops import unary_union
+        retained=unary_union([fixed_polygon(i) for i in exported['ExistingBuilding']['fixed_objects']])
+        for index,hole in enumerate(unit_polygon.interiors):
+            void=Polygon(hole).difference(retained)
+            if void.area>1e-6:
+                parts=[void] if void.geom_type=='Polygon' else list(void.geoms)
+                for j,part in enumerate(parts):
+                    exported['ExistingBuilding']['fixed_objects'].append(dict(
+                        id=f'{unit_id}_void_{index}_{j}',type='fixed',polygon=_round_coords(part.exterior.coords),
+                        rect=list(part.bounds),parametric=False))
         exported["ExistingBuilding"]["original_spaces"] = _intersect_original_spaces(original_spaces, unit_polygon)
         exported["ExistingBuilding"]["door_positions"] = _door_positions(doors[unit_id])
         exported["Training"]["ckpt_path"] = ""
+        exported['Training']['training_stage']='room_training'
+        exported.setdefault('FloorPartition',{})['enabled']=False
+        exported.setdefault('SeedGrowth',{})['enabled']=False
+        exported['TargetSpaces']=[]
+        exported['FunctionalRelations']=[]
+        exported.pop('InteriorTrainingEnvironment',None)
+        exported['FloorPartitionResult']['quality']=report['units'][unit_id]
+        exported['FloorPartitionResult']['interior_program_required']=True
+        exported['FloorPartitionResult']['unit_holes']=[_round_coords(h.coords) for h in unit_polygon.interiors]
         unit_path = unit_dir / "config.yaml"
         unit_path.write_text(yaml.safe_dump(exported, allow_unicode=True, sort_keys=False), encoding="utf-8")
         written.append(unit_path)

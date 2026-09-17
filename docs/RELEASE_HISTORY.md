@@ -7,3 +7,7 @@
 ## 0.2.3 — A1 image-derived building environment
 
 按通道1500mm参照建立A1环境；保留交通核、柱和原纵向通道。收录此前已有的训练阶段切换、画布和配置整理。
+
+## 0.2.4 — Modular A1 and structural partition quality
+
+A1模数化与对称化；自动贴核走道、结构直线分户、逐户外墙采光与门前净空检查；单步REINFORCE候选选择。

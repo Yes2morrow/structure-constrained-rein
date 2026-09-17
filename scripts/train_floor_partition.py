@@ -21,7 +21,10 @@ from shapely.geometry import Polygon
 from common.config_manager import get_config_path
 from common.project_paths import RESULTS_DIR
 from core.envs.structure_geometry import fixed_polygon
-from core.floor_partition import export_unit_configs, run_residential_floor_partition
+from core.floor_partition import export_unit_configs, run_residential_floor_partition, build_floor_partition_problem
+from core.floor_partition.quality import validate_partition
+from core.floor_partition.training import train_partition_policy
+from common.project_paths import STOP_REQUEST_FILE
 
 
 def _polygon_parts(geometry):
@@ -51,6 +54,9 @@ def _draw_geometry(axis, geometry, facecolor, edgecolor, linewidth=1.5, alpha=0.
 def _render_partition(config: dict, result, output_dir: Path) -> None:
     boundary = Polygon(config["ExistingBuilding"]["boundary"])
     figure, axis = plt.subplots(figsize=(10, 6.5))
+    from core.floor_partition.quality import facade
+    from core.floor_partition.structured import lines
+    daylight_facade=facade(build_floor_partition_problem(config))
     bx, by = boundary.exterior.xy
     axis.plot(bx, by, color="#0f172a", linewidth=2.4, zorder=5)
 
@@ -62,7 +68,7 @@ def _render_partition(config: dict, result, output_dir: Path) -> None:
         axis.text(
             point.x,
             point.y,
-            f"{unit_id}\n{geometry.area:.1f}/{result.target_areas[unit_id]:.1f} ㎡",
+            f"{unit_id}\n{geometry.area:.1f}/{result.target_areas[unit_id]:.1f} m2\nFacade: {geometry.boundary.intersection(daylight_facade).length:.1f} m",
             ha="center",
             va="center",
             fontsize=8.5,
@@ -80,7 +86,9 @@ def _render_partition(config: dict, result, output_dir: Path) -> None:
         axis.plot(xs, ys, color="#c62828", linewidth=3.0, solid_capstyle="round", zorder=7)
         axis.annotate(door.unit_id, door.center, textcoords="offset points", xytext=(0, 6), ha="center", fontsize=7.5)
 
-    axis.set_title(f"Residential Floor Partition | opening: {result.opening_side}")
+    for line in lines(daylight_facade.difference(result.corridor)):
+        axis.plot(*line.xy,color='#168354',linewidth=3,zorder=6)
+    axis.set_title(f"Residential Floor Partition | opening: {result.opening_side}\nGreen: available external facade; red: unit doors")
     axis.set_aspect("equal", adjustable="box")
     axis.autoscale_view()
     figure.tight_layout()
@@ -93,6 +101,10 @@ def parse_args():
     parser = argparse.ArgumentParser(description="住宅楼层分区规则链")
     parser.add_argument("--config-id", default="retrofit")
     parser.add_argument("--config", type=Path, default=None)
+    parser.add_argument('--episodes',type=int,default=None)
+    parser.add_argument('--no-rl',action='store_true',help='仅运行结构约束搜索与验收')
+    parser.add_argument('--output-dir',type=Path,default=None)
+    parser.add_argument('--stop-file',type=Path,default=Path(STOP_REQUEST_FILE))
     return parser.parse_args()
 
 
@@ -101,11 +113,19 @@ def main():
     matplotlib.use("Agg", force=True)
     config_path = args.config or Path(get_config_path(args.config_id))
     config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-    output_dir = Path(RESULTS_DIR) / "floor_partition" / datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = args.output_dir or Path(RESULTS_DIR) / "floor_partition" / datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "config.yaml").write_text(yaml.safe_dump(config, allow_unicode=True, sort_keys=False), encoding="utf-8")
 
-    problem, result = run_residential_floor_partition(config)
+    print(f'结果目录: {output_dir}',flush=True)
+    problem=build_floor_partition_problem(config)
+    rl_summary=None
+    if not args.no_rl and config.get('FloorPartition',{}).get('rl',{}).get('enabled',True):
+        result,quality,rl_summary=train_partition_policy(problem,config,output_dir,args.episodes,args.stop_file)
+    else:
+        problem,result=run_residential_floor_partition(config)
+        quality=validate_partition(problem,result)
+    (output_dir/'validation.json').write_text(json.dumps(quality,ensure_ascii=False,indent=2),encoding='utf-8')
     export_paths = export_unit_configs(config, result, output_dir / "exports")
     _render_partition(config, result, output_dir)
 
@@ -134,6 +154,8 @@ def main():
             for unit_id, geometry in sorted(result.unit_polygons.items())
         ],
         "exported_configs": [str(path) for path in export_paths],
+        'quality':quality,
+        'rl_training':rl_summary,
     }
     (output_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"楼层分区结果已保存到: {output_dir}")

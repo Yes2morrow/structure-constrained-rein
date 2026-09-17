@@ -1305,6 +1305,13 @@ def _render_floor_partition_section(config: dict, config_id: str) -> bool:
                     f"（差 {-gap:.2f} ㎡），分区时会按比例放大到实际可分配面积。"
                 )
 
+    with st.expander('分户质量约束（结构对齐与采光外墙）', expanded=False):
+        quality=floor.setdefault('quality', {})
+        quality['facade_per_area']=st.number_input('每平方米净面积所需有效外墙长度（m/㎡）',min_value=0.01,max_value=1.0,value=float(quality.get('facade_per_area',.12)),step=.01,key=f'{config_id}_facade_ratio')
+        quality['min_facade_length']=st.number_input('每户最小有效外墙长度（m）',min_value=.5,value=float(quality.get('min_facade_length',3.)),step=.5,key=f'{config_id}_facade_min')
+        quality['area_tolerance']=st.number_input('目标面积相对误差上限',min_value=.01,max_value=.9,value=float(quality.get('area_tolerance',.30)),step=.01,key=f'{config_id}_partition_area_tolerance')
+        quality['min_unit_width']=st.number_input('户型最小有效宽度（m）',min_value=.5,value=float(quality.get('min_unit_width',1.5)),step=.1,key=f'{config_id}_partition_min_width')
+        st.caption('采光约束为可开窗外墙长度的几何代理，未计算窗墙比、遮挡、朝向或日照时数。分界采用结构轴线、构件边线及柱跨中线；RL在通过硬约束的候选方案中训练选择策略。')
     if not floor["enabled"]:
         return True
     if str(floor.get("program_type", "residential")) != "residential":
@@ -1324,6 +1331,8 @@ def _render_floor_partition_section(config: dict, config_id: str) -> bool:
                         "户型": unit_id,
                         "目标面积": round(float(result.target_areas[unit_id]), 2),
                         "实际面积": round(float(geometry.area), 2),
+                        "有效外墙(m)": round(geometry.boundary.intersection(problem.boundary.exterior.difference(problem.fixed_union)).length,2),
+                        "所需外墙(m)": round(max(float(floor.get('quality',{}).get('min_facade_length',3.)),geometry.area*float(floor.get('quality',{}).get('facade_per_area',.12))),2),
                         "门": [
                             [round(float(value), 2) for value in next(door.points for door in result.doors if door.unit_id == unit_id)[0]],
                             [round(float(value), 2) for value in next(door.points for door in result.doors if door.unit_id == unit_id)[1]],
@@ -1380,17 +1389,26 @@ def render_adaptive_reuse_config_page(
     left, right = st.columns(2)
     with left:
         st.markdown("### 训练设置")
-        training["agent_name"] = st.selectbox("算法模型", ["mappo"], key=f"{config_id}_ar_agent")
+        if stage_is_floor_partition:
+            st.text('算法模型：结构候选策略梯度（REINFORCE，单步决策）')
+        else:
+            training["agent_name"] = st.selectbox("算法模型", ["mappo"], key=f"{config_id}_ar_agent")
         training["episodes"] = int(st.number_input("训练轮数", 1, value=int(training.get("episodes", 1000)), key=f"{config_id}_ar_episodes"))
-        training["max_steps"] = int(st.number_input("每轮最大决策步数", 1, value=int(training.get("max_steps", 240)), key=f"{config_id}_ar_steps"))
+        training["max_steps"] = int(st.number_input("每轮最大决策步数", 1, value=int(training.get("max_steps", 240)), key=f"{config_id}_ar_steps",disabled=stage_is_floor_partition))
         minimum_batch = 2 if seed_mode else 1
-        training["batch_size"] = int(st.number_input("批量大小", minimum_batch, value=max(minimum_batch, int(training.get("batch_size", 64))), key=f"{config_id}_ar_batch"))
-        training["lr"] = float(st.number_input("学习率", min_value=0.000001, value=float(training.get("lr", 0.0003)), format="%.6f", key=f"{config_id}_ar_lr"))
-        training["seed"] = int(st.number_input("随机种子", value=int(training.get("seed", 42)), key=f"{config_id}_ar_seed"))
+        training["batch_size"] = int(st.number_input("批量大小", minimum_batch, value=max(minimum_batch, int(training.get("batch_size", 64))), key=f"{config_id}_ar_batch",disabled=stage_is_floor_partition))
+        if stage_is_floor_partition:
+            rl=floor_partition.setdefault('rl',{})
+            rl['enabled']=True
+            rl['learning_rate']=float(st.number_input('分户策略学习率',min_value=.000001,value=float(rl.get('learning_rate',.01)),format='%.6f',key=f'{config_id}_partition_rl_lr'))
+            rl['seed']=int(st.number_input('分户策略随机种子',value=int(rl.get('seed',42)),key=f'{config_id}_partition_rl_seed'))
+        else:
+            training["lr"] = float(st.number_input("学习率", min_value=0.000001, value=float(training.get("lr", 0.0003)), format="%.6f", key=f"{config_id}_ar_lr"))
+            training["seed"] = int(st.number_input("随机种子", value=int(training.get("seed", 42)), key=f"{config_id}_ar_seed"))
     with right:
         if stage_is_floor_partition:
             st.markdown("### 当前阶段说明")
-            st.caption("楼层功能分区阶段会在交通核外侧规则生成门前走道与门位，再对剩余可分配空间做多户切分。当前阶段的具体参数放在下方“二维原始平面与前期约束标注”区域。")
+            st.caption("沿交通核实际外轮廓生成走道，联合检查户门净空与间距；只保留通过结构对齐、面积、连通性和采光外墙约束的分户候选，再训练候选选择策略。每轮为一次方案选择；保留已验收的最佳方案。不是户内MAPPO，也不保证全局最优。")
         else:
             st.markdown("### 矩形直接优化参数")
             if seed_mode:
@@ -1408,14 +1426,14 @@ def render_adaptive_reuse_config_page(
         config_valid = _render_plan_constraint_editor(config, config_id)
 
     st.markdown("### 奖励权重")
-    st.caption("这里只保留论文方法对应的基础奖励项，不设“额外奖励”分组。")
+    st.caption('分户奖励使用面积误差、转角数、最低采光外墙充足率和走道面积；下列户内权重在此阶段不生效。' if stage_is_floor_partition else "这里只保留论文方法对应的基础奖励项，不设“额外奖励”分组。")
     if seed_mode and not stage_is_floor_partition:
         st.caption('加速训练使用下列共同权重：复用/改造率按原矩形参照快速估算，邻接增加接近过程反馈，形态包含轮廓规整与碎片惩罚；最终质量以精确成图为准。')
     weights = config.setdefault("RewardWeights", {})
     reward_columns = st.columns(2)
     for index, (key, label) in enumerate(REWARD_LABELS.items()):
         with reward_columns[index % 2]:
-            weights[key] = float(st.slider(label, 0.0, 10.0, float(weights.get(key, 1.0)), 0.1, key=f"{config_id}_ar_reward_{key}"))
+            weights[key] = float(st.slider(label, 0.0, 10.0, float(weights.get(key, 1.0)), 0.1, key=f"{config_id}_ar_reward_{key}",disabled=stage_is_floor_partition))
 
     if not include_environment:
         if st.button("保存参数配置", type="primary", use_container_width=True):

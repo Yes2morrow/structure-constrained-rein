@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import math
 from typing import Any
 
@@ -59,6 +59,7 @@ class FloorPartitionProblem:
     program_type: str
     profile: ResidentialProfile
     targets: tuple[PartitionTarget, ...]
+    settings: dict = field(default_factory=dict)
 
 
 def target_areas_for_area(problem: FloorPartitionProblem, allocatable_area: float) -> tuple[list[float], float]:
@@ -111,6 +112,8 @@ def build_floor_partition_problem(config: dict[str, Any]) -> FloorPartitionProbl
 
     residential = floor_partition.setdefault("residential", {})
     raw_target_areas = [float(value) for value in residential.get("target_areas", [])]
+    if any(not math.isfinite(v) or v <= 0 for v in raw_target_areas):
+        raise ValueError('目标面积必须为正有限数')
     unit_count = int(residential.get("unit_count", len(raw_target_areas) or 1))
     if unit_count <= 0:
         raise ValueError("FloorPartition.residential.unit_count 必须大于 0")
@@ -145,7 +148,8 @@ def build_floor_partition_problem(config: dict[str, Any]) -> FloorPartitionProbl
         grid_size=grid_size,
         export_config_prefix=str(residential.get("export_config_prefix", "unit")).strip() or "unit",
     )
-    if min(profile.corridor_width, profile.min_door_spacing, profile.door_width, profile.opening_width) <= 0:
+    dimensions = (profile.corridor_width, profile.min_door_spacing, profile.door_width, profile.opening_width)
+    if any(not math.isfinite(v) or v <= 0 for v in dimensions):
         raise ValueError("走道、门间距、门宽和开口宽度都必须大于 0")
     if profile.opening_side not in {"auto", "north", "south", "east", "west"}:
         raise ValueError("opening_side 只能是 auto/north/south/east/west")
@@ -171,4 +175,5 @@ def build_floor_partition_problem(config: dict[str, Any]) -> FloorPartitionProbl
         program_type=program_type,
         profile=profile,
         targets=targets,
+        settings=dict(floor_partition.get('quality', {})),
     )

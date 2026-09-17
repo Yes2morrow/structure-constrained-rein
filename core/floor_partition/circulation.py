@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
-from shapely.geometry import Polygon, box
+from shapely.geometry import Polygon, box, LineString
 from shapely.ops import unary_union
 
 from .contracts import FloorPartitionProblem, TRAFFIC_CORE_TYPES
@@ -92,29 +93,69 @@ def _side_band(problem: FloorPartitionProblem, side: str, length: float) -> Poly
         return box(max_x, start, max_x + width, end)
     if side == "south":
         return box(start, min_y - width, end, min_y)
-    return box(start, max_y, end, max_y)
+    return box(start, max_y, end, max_y + width)
 
 
 def generate_residential_circulation(problem: FloorPartitionProblem) -> CirculationLayout:
-    """在开口一侧生成贴核的最小走道条带，不再整圈包裹交通核。
+    """Full feasible contour envelope; the partition solver trims its extent."""
+    return list(circulation_candidates(problem))[-1]
 
-    条带只覆盖核门开口一侧：长度取“核开口宽度”与“按门宽与隐私门间距排布
-    全部户门所需面宽”的较大值，再收敛到该侧核边的实际长度；核门开口落在
-    条带内部保持走道连通，满足入户通勤与各户门前的隐私间距即可。
+
+def circulation_candidates(problem):
+    """Offset the actual core contour, then try short-to-long connected bands.
+
+    Width is never reduced to squeeze around obstacles. Opening is the real
+    core/corridor interface. Candidates still need doors and unit validation.
     """
     side = _choose_opening_side(problem)
-    corridor = _side_band(problem, side, _required_length(problem)).intersection(problem.boundary)
-    blocked = unary_union(
-        [
-            fixed_polygon(item)
-            for item in problem.fixed_objects
-            if str(item.get("type")) not in TRAFFIC_CORE_TYPES
-        ]
-    )
-    corridor = corridor.difference(problem.traffic_core)
-    if not blocked.is_empty:
-        corridor = corridor.difference(blocked)
-    opening = _opening_cut(problem, side).intersection(corridor)
-    if corridor.is_empty or corridor.area <= 1e-9:
-        raise ValueError("无法根据当前交通核与结构约束生成有效走道")
-    return CirculationLayout(corridor=corridor, opening=opening, opening_side=side)
+    core = problem.traffic_core
+    if core.geom_type != 'Polygon':
+        raise ValueError('当前自动走道要求交通核连通；分离交通核需先指定连接方案')
+    width = problem.profile.corridor_width
+    blocked = unary_union([fixed_polygon(i) for i in problem.fixed_objects
+                           if i['type'] not in TRAFFIC_CORE_TYPES])
+    ring = core.buffer(width, join_style=2).difference(core).intersection(problem.boundary).difference(blocked)
+    bx,by,ex,ey = problem.boundary.bounds
+    cx,cy = core.centroid.coords[0]
+    masks = {'south':box(bx-1,by-1,ex+1,cy), 'north':box(bx-1,cy,ex+1,ey+1),
+             'west':box(bx-1,by-1,cx,ey+1), 'east':box(cx,by-1,ex+1,ey+1)}
+    ring = ring.intersection(masks[side]).buffer(0)
+    opening = problem.entrance
+    if opening is None or opening.difference(core.boundary.buffer(1e-7)).length > 1e-6:
+        edges=[]
+        for a,b in zip(core.exterior.coords,list(core.exterior.coords)[1:]):
+            edge=LineString([a,b]); mid=edge.interpolate(.5,normalized=True)
+            horizontal=abs(a[1]-b[1]) < 1e-7
+            if horizontal != (side in ('south','north')) or edge.length < problem.profile.opening_width:
+                continue
+            if edge.intersection(ring.buffer(1e-7)).length >= problem.profile.opening_width:
+                edges.append(edge)
+        if not edges:
+            raise ValueError('交通核没有足宽且可连接走道的开口边')
+        edge=min(edges,key=lambda e:e.distance(core.centroid))
+        mid=edge.length/2; half=problem.profile.opening_width/2
+        opening=LineString([edge.interpolate(mid-half),edge.interpolate(mid+half)])
+    horizontal=side in ('south','north')
+    center=opening.centroid.x if horizontal else opening.centroid.y
+    lo,hi=(ring.bounds[0],ring.bounds[2]) if horizontal else (ring.bounds[1],ring.bounds[3])
+    maximum=2*max(center-lo,hi-center)
+    minimum=min(maximum,max(problem.profile.opening_width,_required_length(problem)*.65))
+    seen=set(); yielded=False
+    # One-metre span increments keep the search small; the final extent is exact.
+    lengths=[minimum,maximum]+list(range(math.ceil(minimum),math.ceil(maximum)))
+    for length in sorted(set(lengths)):
+        clip=box(center-length/2,by-1,center+length/2,ey+1) if horizontal else box(bx-1,center-length/2,ex+1,center+length/2)
+        g=ring.intersection(clip).buffer(0).simplify(1e-8,preserve_topology=True)
+        if g.is_empty or g.geom_type != 'Polygon' or g.wkb in seen:
+            continue
+        if not g.buffer(1e-7).covers(opening):
+            continue
+        # A connected centre-space is required; disconnected slivers/narrow
+        # obstacle bypasses are not silently accepted as circulation.
+        centre=g.buffer(-width/2+1e-5,join_style=2)
+        if centre.is_empty or centre.geom_type != 'Polygon':
+            continue
+        seen.add(g.wkb); yielded=True
+        yield CirculationLayout(g,opening,side)
+    if not yielded:
+        raise ValueError('无法生成连接交通核且满足净宽的连续走道；请检查柱位、边界和开口')
