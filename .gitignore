@@ -24,3 +24,7 @@ Thumbs.db
 desktop.ini
 
 .playwright-cli/
+
+# Generated experiment output and temporary paper renders
+results2/
+tmp/

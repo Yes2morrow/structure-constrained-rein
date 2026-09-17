@@ -113,7 +113,23 @@ def render_sidebar_controls(config: dict, config_id: str) -> None:
         render_training_status_indicator(status_text, training_pid)
         st.metric("运行状态", status_text)
         st.caption(f"算法类型: {config.get('Training', {}).get('agent_name', 'mappo')}")
-        st.caption(f"当前训练阶段: {stage_label}")
+        if config.get("ProjectType") == "adaptive_reuse":
+            # 一级分类：训练阶段（二级分类为右侧功能页面，内容随阶段联动）。
+            current_stage = str(config.get("Training", {}).get("training_stage", "room_training")).strip()
+            stage_value = st.radio(
+                "当前训练阶段",
+                ["floor_partition", "room_training"],
+                index=0 if current_stage == "floor_partition" else 1,
+                format_func=lambda value: "楼层分区（分户型）" if value == "floor_partition" else "户型内部训练",
+                key=f"{config_id}_training_stage",
+                help="一级分类：切换后环境搭建、参数配置、训练监控、布局预览等二级功能页面都会跟随当前阶段。",
+            )
+            if current_stage != stage_value:
+                config.setdefault("Training", {})["training_stage"] = stage_value
+                config.setdefault("FloorPartition", {})["enabled"] = stage_value == "floor_partition"
+                save_config(config, config_id)
+        else:
+            st.caption(f"当前训练阶段: {stage_label}")
         st.caption(f"续训模型目录: {config.get('Training', {}).get('ckpt_path', '') or '未设置（新训练无需设置）'}")
         st.caption("继续训练会恢复历史轮次与监控计数。")
         action_message = None

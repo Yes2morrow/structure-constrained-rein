@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 import math
 import base64
 import hashlib
@@ -26,7 +25,10 @@ except ImportError:
 
 from common.config_manager import get_config_dir
 from core.envs import AdaptiveReuseEnv, summarize_target_area_budget, redistribute_target_max_areas
+from core.envs.structure_geometry import fixed_polygon, normalize_structures
 from core.floor_partition import build_floor_partition_problem, run_residential_floor_partition
+from shapely.geometry import Polygon
+from shapely.ops import unary_union
 from gui.config_store import load_config, save_config
 from gui.layout_repair import (
     private_rectangle_config as _private_rectangle_config,
@@ -108,19 +110,6 @@ def _plan_objects(config: dict, width: int, height: int, display=None) -> list[d
     }]
 
 
-def _rect_records(items: list[dict], include_name: bool = True) -> list[dict]:
-    records = []
-    for item in items:
-        rect = list(item.get("rect", [0, 0, 1, 1]))
-        row = {"id": item.get("id", ""), "x1": rect[0], "y1": rect[1], "x2": rect[2], "y2": rect[3]}
-        if include_name:
-            row["name"] = item.get("name", "")
-        else:
-            row["type"] = item.get("type", "column")
-        records.append(row)
-    return records
-
-
 def _clean(value, fallback=""):
     return fallback if value is None or (isinstance(value, float) and math.isnan(value)) else value
 
@@ -148,24 +137,6 @@ def _ordered_target_ids(items: list[dict]) -> list[str]:
 
 def _pair_in_target_order(order: dict[str, int], first: str, second: str) -> tuple[str, str]:
     return (first, second) if order.get(first, math.inf) <= order.get(second, math.inf) else (second, first)
-
-
-def _records_to_rects(frame: pd.DataFrame, include_name: bool = True) -> list[dict]:
-    result = []
-    for raw in frame.to_dict("records"):
-        identifier = str(_clean(raw.get("id"))).strip()
-        if not identifier:
-            continue
-        item = {
-            "id": identifier,
-            "rect": [float(raw[key]) for key in ("x1", "y1", "x2", "y2")],
-        }
-        if include_name:
-            item["name"] = str(_clean(raw.get("name"), identifier))
-        else:
-            item["type"] = str(_clean(raw.get("type"), "column"))
-        result.append(item)
-    return result
 
 
 def _target_records(items: list[dict]) -> list[dict]:
@@ -591,16 +562,16 @@ def _create_tangwu_plan_image(config: dict, width: int, height: int, grid_only=F
     xs, ys = [float(point[0]) for point in boundary], [float(point[1]) for point in boundary]
     min_x, max_x, min_y, max_y = min(xs), max(xs), min(ys), max(ys)
     x_span, y_span = max(max_x - min_x, 1e-9), max(max_y - min_y, 1e-9)
-    image = Image.new("RGB", (width, height), "#faf9f5")
+    image = Image.new("RGB", (width, height), "#ffffff")
     draw = ImageDraw.Draw(image)
-    title_font, room_font, small_font = _plan_font(22), _plan_font(18), _plan_font(14)
+    title_font, small_font = _plan_font(22), _plan_font(14)
 
     def point(x: float, y: float) -> tuple[float, float]:
         scale, ox, oy = viewport(boundary, width, height)
         return (ox+x*scale, oy-y*scale)
 
-    # 细网格只作为坐标参考，原有房间以浅色区分，结构约束由上层彩色图层表达。
-    grid = float(config.get("AdaptiveReuseEnvironment", {}).get("grid_size", 0.5))
+    # 1m×1m 参考网格只作为坐标参考，结构约束由上层彩色图层表达。
+    grid = 1.0
     for x in np.arange(min_x, max_x + grid, grid):
         px, _ = point(x, min_y)
         draw.line([(px, 0), (px, height)], fill="#edf0f2", width=1)
@@ -609,23 +580,6 @@ def _create_tangwu_plan_image(config: dict, width: int, height: int, grid_only=F
         draw.line([(0, py), (width, py)], fill="#edf0f2", width=1)
 
     if grid_only: return image
-
-    room_colors = ["#f7dada", "#f6d5d7", "#f8dcdd", "#cfe8cf", "#f4d5d8", "#f7d8da"]
-    for index, item in enumerate(building.get("original_spaces", [])):
-        x1, y1, x2, y2 = map(float, item["rect"])
-        left, bottom = point(x1, y1)
-        right, top = point(x2, y2)
-        draw.rectangle([left, top, right, bottom], fill=room_colors[index % len(room_colors)], outline="#7c8791", width=2)
-        label = str(item.get("name", item.get("id", "原空间")))
-        box_value = draw.textbbox((0, 0), label, font=room_font)
-        text_width = box_value[2] - box_value[0]
-        text_height = box_value[3] - box_value[1]
-        cx, cy = (left + right) / 2, (top + bottom) / 2
-        draw.rounded_rectangle(
-            [cx - text_width / 2 - 7, cy - text_height / 2 - 5, cx + text_width / 2 + 7, cy + text_height / 2 + 5],
-            radius=5, fill="#ffffffdd",
-        )
-        draw.text((cx - text_width / 2, cy - text_height / 2 - 1), label, fill="#263746", font=room_font)
 
     # 在底图中画出中央楼梯/电梯核心区的内部符号，约束图层会半透明覆盖其上。
     core_item = next((
@@ -657,7 +611,6 @@ def _create_tangwu_plan_image(config: dict, width: int, height: int, grid_only=F
     if len(opening)>=2:
         draw.line(opening,fill='#2d6f9f',width=7)
     draw.text((12, 10), "既有住宅·原始平面", fill="#1f3448", font=title_font)
-    draw.text((12, 40), "浅色区域：原有房间　彩色覆盖：保留结构约束", fill="#617181", font=small_font)
     return image
 
 
@@ -669,7 +622,7 @@ def _load_plan_image(config: dict, width: int, height: int):
             scale, ox, oy = viewport(boundary, width, height)
             xs, ys = zip(*boundary)
             size = (max(1, round((max(xs)-min(xs))*scale)), max(1, round((max(ys)-min(ys))*scale)))
-            image = Image.new('RGB', (width,height), '#faf9f5')
+            image = Image.new('RGB', (width,height), '#ffffff')
             image.paste(ImageOps.fit(source.convert('RGB'), size, method=Image.Resampling.LANCZOS),
                         (round(ox+min(xs)*scale),round(oy-max(ys)*scale)))
             return image
@@ -677,8 +630,6 @@ def _load_plan_image(config: dict, width: int, height: int):
 
 
 def _render_residential_inputs(config, config_id):
-    original_before=deepcopy(config["ExistingBuilding"].get("original_spaces",[]))
-    revision=st.session_state.get(f"{config_id}_ar_canvas_revision",0)
     st.markdown("### 既有住宅输入")
     scenario_col1, scenario_col2 = st.columns(2)
     with scenario_col1:
@@ -691,38 +642,13 @@ def _render_residential_inputs(config, config_id):
             "转换目标", value=config.get("ConversionGoal", "modern_residence"),
             help="目标是现代住宅功能布局，而不是公共服务或社区中心。", key=f"{config_id}_ar_goal",
         )
-    with st.expander("坐标数据表（精确编辑）", expanded=False):
-        st.markdown("#### 原始空间（改造前状态）")
-        original_df = st.data_editor(
-            pd.DataFrame(_rect_records(config["ExistingBuilding"].get("original_spaces", []))),
-            num_rows="dynamic", use_container_width=True, key=f"{config_id}_ar_originals_{REFERENCE_PLAN_UI_VERSION}_{revision}",
-        )
-        try:
-            originals = _records_to_rects(original_df)
-            for item in originals:
-                x1, y1, x2, y2 = item["rect"]
-                if not all(math.isfinite(v) for v in item["rect"]) or x2 <= x1 or y2 <= y1:
-                    raise ValueError("原始空间需满足 x2 > x1、y2 > y1，坐标必须为有限数值。")
-            config["ExistingBuilding"]["original_spaces"] = originals
-        except (TypeError, ValueError, KeyError) as exc:
-            st.error(f"原始空间坐标无效：{exc}")
-            return False
 
-    if original_before!=config['ExistingBuilding']['original_spaces']:
-        saved=load_config(config_id)
-        saved['ExistingBuilding']['original_spaces']=config['ExistingBuilding']['original_spaces']
-        save_config(saved,config_id)
-        st.session_state[f'{config_id}_ar_canvas_revision']=revision+1
-        st.rerun()
-
-    if st.button("保存住宅输入并应用到二维标注", type="primary", use_container_width=True):
+    if st.button("保存住宅输入", type="primary", use_container_width=True):
         saved = load_config(config_id)
         for field in ("BuildingTypology", "ConversionGoal"):
             saved[field] = config[field]
-        saved["ExistingBuilding"]["original_spaces"] = config["ExistingBuilding"]["original_spaces"]
         save_config(saved, config_id)
-        st.session_state[f"{config_id}_ar_canvas_revision"] = st.session_state.get(f"{config_id}_ar_canvas_revision", 0) + 1
-        st.success("住宅类型、转换目标、建筑边界及坐标表已保存，并应用到下方二维标注。")
+        st.success("住宅类型与转换目标已保存。")
 
     return True
 
@@ -914,7 +840,7 @@ def _render_plan_constraint_editor(
                 st.session_state[f"{config_id}_ar_canvas_revision"] = st.session_state.get(f"{config_id}_ar_canvas_revision", 0) + 1
                 st.rerun()
         else:
-            st.caption("当前底图：系统根据既有住宅及各原有房间自动生成的二维平面")
+            st.caption("当前底图：系统根据既有住宅自动生成的二维平面")
     with type_col:
         tools_row=st.columns(4)
         type_options = [k for k in CONSTRAINT_STYLES if k != 'core']
@@ -927,7 +853,7 @@ def _render_plan_constraint_editor(
             "画布操作", ["统一点编辑", "绘制约束", "选择/调整", "调整建筑边界"], horizontal=True,
             key=f"{config_id}_ar_canvas_mode",
         )
-        layers={'全部对象':'all','建筑边界':'boundary','原有房间':'original','智能体初始区域':'agent','智能体种子':'seed','柱':'column','墙线与左右厚度':'wall','其他矩形构件':'fixed_rect','其他多边形构件':'fixed','门位置':'door'}
+        layers={'全部对象':'all','建筑边界':'boundary','智能体初始区域':'agent','智能体种子':'seed','柱':'column','墙线与左右厚度':'wall','其他矩形构件':'fixed_rect','其他多边形构件':'fixed','门位置':'door'}
         layer=layers[tools_row[2].selectbox('编辑图层（控制可选点）',list(layers),key=f'{config_id}_environment_layer')]
         entries=environment_controls(config)
         ids=sorted({k[1] for k in entries if layer=='all' or k[0]==layer})
@@ -937,7 +863,7 @@ def _render_plan_constraint_editor(
         if selected_type in ('shear_wall', 'load_bearing_wall'):
             wall_left = st.number_input('新墙左侧厚度（m）', min_value=0.0, value=.12, step=.01, key=f'{config_id}_new_wall_left')
             wall_right = st.number_input('新墙右侧厚度（m）', min_value=0.0, value=.12, step=.01, key=f'{config_id}_new_wall_right')
-            st.caption('拖出墙线的起点与终点；左右按拖动方向定义。调整模式可移动、旋转、沿长度或厚度缩放。')
+            st.caption('拖出墙线的起点与终点；左右按拖动方向定义。绘制后画布上仅可整体移动，端点与厚度请在“边界与结构”表格中输入。')
     xs = [float(point[0]) for point in boundary]
     ys = [float(point[1]) for point in boundary]
     aspect = max((max(xs) - min(xs)) / max(max(ys) - min(ys), 1e-9), 0.35)
@@ -950,7 +876,7 @@ def _render_plan_constraint_editor(
 
     canvas_column, parameters_column = st.columns([1.05, 1], gap="medium")
     with parameters_column, st.container(height=parameter_panel_height, border=False):
-        panel_tabs=st.tabs(['显示','原房间','边界与结构','智能体与关系','控制点'])
+        panel_tabs=st.tabs(['显示','住宅输入','边界与结构','智能体与关系','控制点'])
         with panel_tabs[0]:
             with st.expander('图层显示与透明度', expanded=True):
                 st.caption('勾选显示；透明度 0 为原始着色，100 为全透明。隐藏不会删除数据。')
@@ -961,13 +887,13 @@ def _render_plan_constraint_editor(
                     key=f'{config_id}_environment_display',use_container_width=True)
                 display={key:(bool(row['显示']),float(row['透明度'] or 0)) for key,row in zip(list(DISPLAY_LAYERS)+['labels','background'],view.to_dict('records'))}
                 if stage_is_floor_partition:
-                    for hidden_key in ('original','agent','seed','labels','background'):
+                    for hidden_key in ('agent','seed','labels','background'):
                         display[hidden_key]=(False,100.0)
                 st.caption('上传图片中的内容属于底图像素，可整体隐藏；各类环境对象可独立隐藏。')
         with panel_tabs[1]:
-            inputs_valid = _render_residential_inputs(config, config_id)
+            _render_residential_inputs(config, config_id)
         with panel_tabs[2]:
-            editor_valid = render_structure_editor(config, config_id) and inputs_valid
+            editor_valid = render_structure_editor(config, config_id)
         try:
             with panel_tabs[3]:
                 if stage_is_floor_partition:
@@ -983,7 +909,7 @@ def _render_plan_constraint_editor(
             st.error(f"智能体数据未保存：{exc}")
             editor_valid=False
         if stage_is_floor_partition:
-            st.caption('当前处于楼层功能分区阶段：左侧画布会自动隐藏原房间、智能体初始区域和种子点，仅保留楼层边界、结构约束以及规则生成的走道/门位。')
+            st.caption('当前处于楼层功能分区阶段：左侧画布会自动隐藏智能体初始区域和种子点，仅保留楼层边界、结构约束以及规则生成的走道/门位。')
 
     with canvas_column:
         if not editor_valid or not stage_valid:
@@ -1021,7 +947,7 @@ def _render_plan_constraint_editor(
             display_toolbar=True,
             key=canvas_key,
         )
-        st.caption('观看操作：鼠标滚轮缩放画布，按住鼠标中键或 Alt + 左键拖动可平移，画布下方可缩小、放大或重置；这些操作不会改变实际尺寸。外轮廓尺寸线为只读标注，不参与结构约束。统一点编辑：橙色为边界，棕色为原房间，蓝色半透明为初始智能体，紫色为种子。角点调尺寸、中心点平移；拖动智能体种子会整体平移该区域。墙线端点与左右厚度点独立可拖。重叠时选择图层和对象 ID。原房间/初始区域保持矩形；拖动不改变图节点关系。')
+        st.caption('观看操作：鼠标滚轮缩放画布，按住鼠标中键或 Alt + 左键拖动可平移，画布下方可缩小、放大或重置；这些操作不会改变实际尺寸。外轮廓尺寸线为只读标注，不参与结构约束。统一点编辑：橙色为边界，蓝色半透明为初始智能体，紫色为种子；中心点平移，尺寸请在右侧表格中输入。柱、墙等结构约束仅保留中心点用于移动，尺寸在“边界与结构”表中修改；交通核区域仍可通过角点拉伸。拖动智能体种子会整体平移该区域。重叠时选择图层和对象 ID。拖动不改变图节点关系。')
         if config.get('InteriorTrainingEnvironment'):
             legend_items=[]
             for room in config.get('TargetSpaces',[]):
@@ -1079,20 +1005,21 @@ def _render_plan_constraint_editor(
     return editor_valid and stage_valid
 
 
-def _parse_area_values(raw_text: str) -> list[float]:
-    """解析自定义面积列表。"""
-    if not raw_text.strip():
-        return []
+def _floor_usable_area_summary(config: dict) -> tuple[float, float, float] | None:
+    """验算当前建筑环境下的总可用面积：总轮廓面积 − 全部结构约束面积（含交通核、柱、墙等）。"""
+    building = config.get("ExistingBuilding", {})
     try:
-        parsed = ast.literal_eval(raw_text)
-    except Exception as exc:
-        raise ValueError(f"面积列表格式错误：{exc}") from exc
-    if not isinstance(parsed, list):
-        raise ValueError("面积列表必须写成 Python 列表，例如 [80, 80, 80]")
-    values = [float(item) for item in parsed]
-    if any(item <= 0 for item in values):
-        raise ValueError("面积列表中的每个数值都必须大于 0")
-    return values
+        boundary = Polygon(building.get("boundary", []))
+        if not boundary.is_valid or boundary.area <= 0:
+            return None
+        fixed_shapes = [fixed_polygon(item) for item in normalize_structures(building.get("fixed_objects", []))]
+        fixed_union = unary_union(fixed_shapes) if fixed_shapes else None
+        if fixed_union is None or fixed_union.is_empty:
+            return boundary.area, 0.0, boundary.area
+        usable = boundary.difference(fixed_union)
+        return boundary.area, boundary.area - usable.area, usable.area
+    except Exception:
+        return None
 
 
 def _ensure_floor_partition_defaults(config: dict) -> dict:
@@ -1214,17 +1141,13 @@ def _render_floor_partition_section(config: dict, config_id: str) -> bool:
     training = _ensure_training_stage_defaults(config)
     floor = _ensure_floor_partition_defaults(config)
     residential = floor["residential"]
-    st.markdown("#### 训练阶段")
-    training["training_stage"] = st.radio(
-        "当前训练阶段",
-        ["floor_partition", "room_training"],
-        index=0 if _is_floor_partition_stage(config) else 1,
-        horizontal=True,
-        format_func=lambda value: "楼层功能分区" if value == "floor_partition" else "户型内部训练",
-        key=f"{config_id}_training_stage",
+    # 阶段切换入口在侧边栏一级分类，这里只读取当前阶段。
+    training["training_stage"] = st.session_state.get(
+        f"{config_id}_training_stage",
+        training.get("training_stage", "room_training"),
     )
     floor["enabled"] = _is_floor_partition_stage(config)
-    st.caption("这里决定当前工作台训练的是整层功能分区，还是已切出的单个户型内部房间。")
+    st.caption("训练阶段（楼层分区 / 户型内部训练）在左侧边栏的一级分类中切换，这里配置当前阶段的分区参数。")
     if not floor["enabled"]:
         interior = config.get("InteriorTrainingEnvironment", {})
         if interior:
@@ -1262,12 +1185,11 @@ def _render_floor_partition_section(config: dict, config_id: str) -> bool:
             )
         )
     with cols[1]:
-        residential["target_area_mode"] = st.selectbox(
-            "面积模式",
-            ["equal", "custom"],
-            index=0 if residential.get("target_area_mode", "equal") == "equal" else 1,
-            format_func=lambda value: "等面积" if value == "equal" else "自定义比例面积",
-            key=f"{config_id}_floor_partition_area_mode",
+        equal_area_mode = st.checkbox(
+            "等面积（平均分配给各户）",
+            value=str(residential.get("target_area_mode", "equal")) == "equal",
+            key=f"{config_id}_floor_partition_area_equal",
+            help="勾选后禁止逐户填写面积，按剩余可分配面积平均分配；取消勾选可在下方表格中逐户填写目标面积。",
         )
         residential["corridor_width"] = float(
             st.number_input(
@@ -1318,25 +1240,70 @@ def _render_floor_partition_section(config: dict, config_id: str) -> bool:
         value=str(residential.get("export_config_prefix", "unit")),
         key=f"{config_id}_floor_partition_prefix",
     ).strip() or "unit"
-    if residential["target_area_mode"] == "custom":
-        try:
-            residential["target_areas"] = _parse_area_values(
-                st.text_input(
-                    "自定义面积列表",
-                    value=str(residential.get("target_areas", [])),
-                    help="按 Python 列表填写，例如 [78, 82, 80]。分区时会按该比例缩放到实际剩余可分配面积。",
-                    key=f"{config_id}_floor_partition_areas",
-                )
+    residential["target_area_mode"] = "equal" if equal_area_mode else "custom"
+    usable_summary = _floor_usable_area_summary(config)
+    if usable_summary is not None:
+        boundary_area, fixed_area, usable_area = usable_summary
+        st.info(
+            f"验算：总轮廓面积 {boundary_area:.2f} ㎡ − 结构约束面积 {fixed_area:.2f} ㎡"
+            f"（交通核、柱、墙等，与分区求解口径一致）= 总可用面积 {usable_area:.2f} ㎡。"
+        )
+    if equal_area_mode:
+        if usable_summary is not None:
+            st.caption(
+                f"已勾选等面积：逐户面积输入被禁用，系统在扣除结构与走道后把可分配面积平均分给 "
+                f"{residential['unit_count']} 户，约 {usable_area / max(int(residential['unit_count']), 1):.2f} ㎡/户"
+                f"（走道占用会在求解时再扣除）。"
             )
-        except ValueError as exc:
-            st.error(str(exc))
-            return False
-        if len(residential["target_areas"]) != residential["unit_count"]:
-            st.error("自定义面积数量必须和户数一致。")
-            return False
+        else:
+            st.caption("已勾选等面积：逐户面积输入被禁用，系统在扣除结构与走道后把可分配面积平均分给各户。")
     else:
-        residential["target_areas"] = [float(residential.get("target_areas", [1.0] * residential["unit_count"])[0] if residential.get("target_areas") else 1.0)] * residential["unit_count"]
-        st.caption("等面积模式下，系统会在扣除结构与走道后，把剩余可分配面积平均分给各户。")
+        prefix = str(residential.get("export_config_prefix", "unit"))
+        base_areas = [float(value) for value in (residential.get("target_areas") or [])[: int(residential["unit_count"])]]
+        base_areas += [80.0] * (int(residential["unit_count"]) - len(base_areas))
+        area_frame = pd.DataFrame(
+            {
+                "户型": [f"{prefix}_{index + 1:02d}" for index in range(int(residential["unit_count"]))],
+                "目标面积（㎡）": base_areas,
+            }
+        )
+        edited_frame = st.data_editor(
+            area_frame,
+            num_rows="fixed",
+            hide_index=True,
+            use_container_width=True,
+            key=f"{config_id}_floor_partition_area_table_{residential['unit_count']}",
+            column_config={"目标面积（㎡）": st.column_config.NumberColumn(min_value=0.1, step=0.5, format="%.2f")},
+        )
+        try:
+            values = [float(value) for value in edited_frame["目标面积（㎡）"]]
+            if len(values) != int(residential["unit_count"]):
+                raise ValueError("每户都需要填写目标面积。")
+            if not all(math.isfinite(value) and value > 0 for value in values):
+                raise ValueError("目标面积必须是大于 0 的有限数值。")
+            residential["target_areas"] = values
+        except (TypeError, ValueError) as exc:
+            st.error(f"逐户面积无效：{exc}")
+            return False
+        if usable_summary is not None:
+            boundary_area, _fixed_area, usable_area = usable_summary
+            total_requested = sum(values)
+            gap = total_requested - usable_area
+            if abs(gap) <= 0.05:
+                st.success(
+                    f"验算通过：逐户面积合计 {total_requested:.2f} ㎡，与总可用面积 {usable_area:.2f} ㎡ 一致"
+                    f"（实际分配会再扣除走道后按比例微调）。"
+                )
+            elif gap > 0:
+                st.warning(
+                    f"验算：逐户面积合计 {total_requested:.2f} ㎡ 超过总可用面积 {usable_area:.2f} ㎡"
+                    f"（超出 {gap:.2f} ㎡），分区时会按比例缩小到实际可分配面积。"
+                )
+            else:
+                st.info(
+                    f"验算：逐户面积合计 {total_requested:.2f} ㎡ 少于总可用面积 {usable_area:.2f} ㎡"
+                    f"（差 {-gap:.2f} ㎡），分区时会按比例放大到实际可分配面积。"
+                )
 
     if not floor["enabled"]:
         return True

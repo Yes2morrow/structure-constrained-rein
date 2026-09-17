@@ -67,8 +67,10 @@ def run_app() -> None:
     current_view = st.session_state.get("main_view", "参数配置")
     if current_view not in view_options:
         current_view = "参数配置"
+    if is_adaptive_reuse:
+        st.caption("二级分类 · 功能页面：内容跟随左侧一级分类「训练阶段」联动。")
     st.session_state.main_view = st.radio(
-        "主视图",
+        "功能页面",
         view_options,
         index=view_options.index(current_view),
         horizontal=True,

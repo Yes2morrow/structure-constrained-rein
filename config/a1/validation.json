@@ -1,0 +1,16 @@
+{
+  "config_id": "A1",
+  "geometry_validation": "passed",
+  "length_unit": "m",
+  "area_unit": "m2",
+  "width": 28.578947,
+  "height": 14.960526,
+  "gross_footprint_area": 358.8656448988921,
+  "traffic_core_area": 80.28323276592799,
+  "retained_corridor_area": 10.539473999999998,
+  "retained_corridor_width": 1.5,
+  "retained_corridor_length": 7.026316,
+  "column_count": 16,
+  "free_area": 258.86842200000086,
+  "training_executed": false
+}

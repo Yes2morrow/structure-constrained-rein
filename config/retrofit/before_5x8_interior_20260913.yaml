@@ -120,25 +120,6 @@ ExistingBuilding:
     type: traffic_core
     rect: [24.0, 0.0, 30.0, 18.0]
     parametric: true
-  original_spaces:
-  - id: living
-    rect: [8.5, 11.5, 21.5, 17.5]
-    name: 原有空间
-  - id: master_bedroom
-    rect: [1.0, 1.0, 7.5, 9.5]
-    name: 原西侧房
-  - id: second_bedroom
-    rect: [14.056489361702123, 6.570425531914893, 20.556489361702123, 13.570425531914893]
-    name: 原东侧房
-  - id: kitchen
-    rect: [12.250744680851058, 1.1064361702127643, 18.750744680851057, 5.106436170212764]
-    name: 原灶房
-  - id: bathroom
-    rect: [1.0, 10.5, 7.5, 17.5]
-    name: 原西北房
-  - id: dining
-    rect: [7.205957446808508, 5.447021276595745, 13.705957446808508, 9.447021276595745]
-    name: 原东南房
   structure_schema_version: 2
 FunctionalRelations:
 - from: living

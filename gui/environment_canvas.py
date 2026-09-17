@@ -16,30 +16,28 @@ def entrance_points(building):
 def controls(config):
     result={}
     def add(group,key,role,point): result[(group,key,role)]=list(point)
-    def rectangle(group,key,r):
+    def rectangle(group,key,r,move_only=False):
         x1,y1,x2,y2=r
+        if move_only:  # 画布只保留中心点移动；尺寸通过右侧表格输入。
+            add(group,key,'center',((x1+x2)/2,(y1+y2)/2)); return
         for role,p in zip(('sw','se','ne','nw','center'),
                           ((x1,y1),(x2,y1),(x2,y2),(x1,y2),((x1+x2)/2,(y1+y2)/2))): add(group,key,role,p)
     b=config['ExistingBuilding']
     for i,p in enumerate(b['boundary']): add('boundary',str(i),'point',p)
-    for item in b.get('original_spaces',[]): rectangle('original',item['id'],item['rect'])
     for item in config.get('TargetSpaces',[]):
         if item.get('role') == 'residual': continue
-        rectangle('agent',item['id'],item['initial_rect'])
+        rectangle('agent',item['id'],item['initial_rect'],move_only=True)
         r=item['initial_rect']; add('seed',item['id'],'point',item.get('seed',[(r[0]+r[2])/2,(r[1]+r[3])/2]))
     for item in b.get('fixed_objects',[]):
         if item.get('derived'): continue
         key=item['id']
         if item['type'] in ('shear_wall','load_bearing_wall'):
-            s,e=item['start'],item['end']; length=math.dist(s,e)
-            n=[-(e[1]-s[1])/length,(e[0]-s[0])/length]; m=[(s[0]+e[0])/2,(s[1]+e[1])/2]
-            for role,p in [('start',s),('end',e),('center',m),
-                           ('left',[m[j]+n[j]*item['left_thickness'] for j in (0,1)]),
-                           ('right',[m[j]-n[j]*item['right_thickness'] for j in (0,1)])]: add('wall',key,role,p)
-        elif item['type']=='column': rectangle('column',key,item['rect'])
+            s,e=item['start'],item['end']
+            add('wall',key,'center',[(s[0]+e[0])/2,(s[1]+e[1])/2])
+        elif item['type']=='column': rectangle('column',key,item['rect'],move_only=True)
         elif 'polygon' in item:
             for i,p in enumerate(item['polygon']): add('fixed',key,str(i),p)
-        else: rectangle('fixed_rect',key,item['rect'])
+        else: rectangle('fixed_rect',key,item['rect'],move_only=item['type']!='traffic_core')
     for i,p in enumerate(entrance_points(b)): add('door',str(i),'point',p)
     return result
 
@@ -48,7 +46,7 @@ def color(key):
     return '#'+hashlib.sha256(repr(key).encode()).hexdigest()[:6]
 
 
-DISPLAY_LAYERS = {'boundary':'场地边界','original':'原有房间','agent':'智能体初始区域','seed':'智能体种子点','column':'柱','shear_wall':'剪力墙','load_bearing_wall':'承重墙','core':'核心筒','traffic_core':'交通核区域','retained_circulation':'保留交通空间','fixed':'其他固定构件'}
+DISPLAY_LAYERS = {'boundary':'场地边界','agent':'智能体初始区域','seed':'智能体种子点','column':'柱','shear_wall':'剪力墙','load_bearing_wall':'承重墙','core':'核心筒','traffic_core':'交通核区域','retained_circulation':'保留交通空间','fixed':'其他固定构件'}
 
 FUNCTION_ROOM_COLORS = {
     'living': ('#f2f0f0', 'rgba(242,240,240,0.88)'),
@@ -105,20 +103,17 @@ def scene(config,width,height,styles,layer='all',selected=None,display=None):
     door=[dict(x=ox+x*scale,y=oy-y*scale) for x,y in entrance_points(b)]
     if len(door)>=2:
         objects.append(dict(type='polyline',points=door,left=min(p['x'] for p in door),top=min(p['y'] for p in door),fill='',stroke='#2d6f9f',strokeWidth=7,selectable=False,evented=False,**appearance('boundary')))
-    for group,items,rect_key,fill in [('original',b.get('original_spaces',[]),'rect','rgba(244,180,170,0.55)'),
-                                     ('agent',config.get('TargetSpaces',[]),'initial_rect','rgba(66,165,245,0.30)')]:
-        for item in items:
-            colorized = group=='agent' and bool(config.get('InteriorTrainingEnvironment'))
-            if group=='agent' and item.get('role')=='residual': continue
-            x1,y1,x2,y2=item[rect_key]
-            room_fill=(FUNCTION_ROOM_COLORS['living'][1] if group=='original' and config.get('InteriorTrainingEnvironment') else
-                       FUNCTION_ROOM_COLORS.get(item.get('id'),('#90a4ae','rgba(144,164,174,0.72)'))[1] if colorized else fill)
-            objects.append(dict(type='rect',left=ox+x1*scale,top=oy-y2*scale,width=(x2-x1)*scale,height=(y2-y1)*scale,
-                                fill=room_fill,stroke='#174a73' if group=='agent' else '#8d6e63',strokeWidth=1.5 if colorized else 1,selectable=False,evented=False,**appearance(group)))
-            if not config.get('InteriorTrainingEnvironment'):
-                objects.append(dict(type='text',text=('初始·' if group=='agent' else '')+item.get('name',item['id']),
-                                    left=ox+x1*scale+4,top=oy-y2*scale+4,fontSize=12,fill='#123456',selectable=False,evented=False,visible=appearance(group)['visible'] and display.get('labels',(True,0))[0],opacity=appearance(group)['opacity']))
-    palette=dict(boundary='#ef6c00',original='#a1887f',agent='#1976d2',seed='#8e24aa',column='#455a64',wall='#c62828',fixed='#546e7a',fixed_rect='#546e7a',door='#00897b')
+    for item in config.get('TargetSpaces',[]):
+        if item.get('role')=='residual': continue
+        colorized = bool(config.get('InteriorTrainingEnvironment'))
+        x1,y1,x2,y2=item['initial_rect']
+        room_fill=(FUNCTION_ROOM_COLORS.get(item.get('id'),('#90a4ae','rgba(144,164,174,0.72)'))[1] if colorized else 'rgba(66,165,245,0.30)')
+        objects.append(dict(type='rect',left=ox+x1*scale,top=oy-y2*scale,width=(x2-x1)*scale,height=(y2-y1)*scale,
+                            fill=room_fill,stroke='#174a73',strokeWidth=1.5 if colorized else 1,selectable=False,evented=False,**appearance('agent')))
+        if not config.get('InteriorTrainingEnvironment'):
+            objects.append(dict(type='text',text='初始·'+item.get('name',item['id']),
+                                left=ox+x1*scale+4,top=oy-y2*scale+4,fontSize=12,fill='#123456',selectable=False,evented=False,visible=appearance('agent')['visible'] and display.get('labels',(True,0))[0],opacity=appearance('agent')['opacity']))
+    palette=dict(boundary='#ef6c00',agent='#1976d2',seed='#8e24aa',column='#455a64',wall='#c62828',fixed='#546e7a',fixed_rect='#546e7a',door='#00897b')
     for key,p in controls(config).items():
         shown=appearance(control_layer(key,config))
         active=shown['visible'] and (layer=='all' or key[0]==layer) and (selected is None or key[1]==selected)
@@ -161,7 +156,6 @@ def parse_scene(objects,config,width,height):
     b=result['ExistingBuilding']
     for i,p in enumerate(b['boundary']): b['boundary'][i]=changes.get(('boundary',str(i),'point'),p)
     b['boundary']=validate_boundary(b['boundary'])
-    for item in b.get('original_spaces',[]): rect('original',item,'rect')
     for item in result.get('TargetSpaces',[]):
         if item.get('role') == 'residual': continue
         moved,dx,dy=rect('agent',item,'initial_rect')
