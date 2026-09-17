@@ -11,3 +11,7 @@
 ## 0.2.4 — Modular A1 and structural partition quality
 
 A1模数化与对称化；自动贴核走道、结构直线分户、逐户外墙采光与门前净空检查；单步REINFORCE候选选择。
+
+## 0.2.5 — Joint layout search and graph PPO
+
+联合调整户型、户门和走道；空间图局部搜索、多步PPO、采光进深与形态检查；保留旧单步算法作对照。

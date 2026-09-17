@@ -30,8 +30,12 @@ def main():
     config['FloorPartition'].update(enabled=True,grid_size=.25,
         quality=dict(area_tolerance=.25,min_facade_length=3.,facade_per_area=.12,
                      min_unit_width=1.5,max_corners=24,door_clearance_depth=1.2,
-                     door_clearance_width=1.2,entrance_depth=.9,beam_width=32,max_candidates=24),
-        rl=dict(enabled=True,episodes=128,learning_rate=.01,entropy_coef=.02,seed=42))
+                     door_clearance_width=1.2,entrance_depth=.9,beam_width=32,max_candidates=24,
+                     min_structure_alignment=.65,daylight_depth=6.,min_daylight_coverage=.45,max_unusable_ratio=.12),
+        joint_search=dict(enabled=True,cell_size=1.5,radii=[2,4,8],max_cells=160,max_area=100.,
+                          max_actions=36,proposals=32,steps=12,seconds_per_action=1.5,seed=42),
+        rl=dict(enabled=True,algorithm='graph_ppo',episodes=128,steps_per_episode=8,ppo_epochs=3,
+                learning_rate=.0003,entropy_coef=.02,seed=42))
     config['FloorPartition']['residential'].update(unit_count=4,target_area_mode='equal',target_areas=[],
         corridor_width=1.5,door_width=.9,min_door_spacing=2.4,opening_width=1.5,opening_side='south')
     config['Training']['training_stage']='floor_partition'

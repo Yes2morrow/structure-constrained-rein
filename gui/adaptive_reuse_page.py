@@ -1311,7 +1311,10 @@ def _render_floor_partition_section(config: dict, config_id: str) -> bool:
         quality['min_facade_length']=st.number_input('每户最小有效外墙长度（m）',min_value=.5,value=float(quality.get('min_facade_length',3.)),step=.5,key=f'{config_id}_facade_min')
         quality['area_tolerance']=st.number_input('目标面积相对误差上限',min_value=.01,max_value=.9,value=float(quality.get('area_tolerance',.30)),step=.01,key=f'{config_id}_partition_area_tolerance')
         quality['min_unit_width']=st.number_input('户型最小有效宽度（m）',min_value=.5,value=float(quality.get('min_unit_width',1.5)),step=.1,key=f'{config_id}_partition_min_width')
-        st.caption('采光约束为可开窗外墙长度的几何代理，未计算窗墙比、遮挡、朝向或日照时数。分界采用结构轴线、构件边线及柱跨中线；RL在通过硬约束的候选方案中训练选择策略。')
+        quality['min_structure_alignment']=st.number_input('分户共边贴合结构参考线的最低比例',min_value=.01,max_value=1.,value=float(quality.get('min_structure_alignment',1.)),step=.05,key=f'{config_id}_partition_alignment')
+        quality['daylight_depth']=st.number_input('采光机会检查深度（m）',min_value=.5,value=float(quality.get('daylight_depth',6.)),step=.5,key=f'{config_id}_partition_daylight_depth')
+        quality['min_daylight_coverage']=st.number_input('每户采光机会覆盖比例下限',min_value=.01,max_value=1.,value=float(quality.get('min_daylight_coverage',.25)),step=.05,key=f'{config_id}_partition_daylight_coverage')
+        st.caption('外墙长度与进深覆盖是几何采光代理，未计算窗墙比、遮挡、朝向或日照。分界优先采用结构参考线，也可沿补充模数线调整；每次修改均重新检查每户质量。')
     if not floor["enabled"]:
         return True
     if str(floor.get("program_type", "residential")) != "residential":
@@ -1390,7 +1393,7 @@ def render_adaptive_reuse_config_page(
     with left:
         st.markdown("### 训练设置")
         if stage_is_floor_partition:
-            st.text('算法模型：结构候选策略梯度（REINFORCE，单步决策）')
+            st.text('算法模型：空间图 PPO（多步联合修改户型、户门与走道）')
         else:
             training["agent_name"] = st.selectbox("算法模型", ["mappo"], key=f"{config_id}_ar_agent")
         training["episodes"] = int(st.number_input("训练轮数", 1, value=int(training.get("episodes", 1000)), key=f"{config_id}_ar_episodes"))
@@ -1400,15 +1403,21 @@ def render_adaptive_reuse_config_page(
         if stage_is_floor_partition:
             rl=floor_partition.setdefault('rl',{})
             rl['enabled']=True
-            rl['learning_rate']=float(st.number_input('分户策略学习率',min_value=.000001,value=float(rl.get('learning_rate',.01)),format='%.6f',key=f'{config_id}_partition_rl_lr'))
+            rl['algorithm']='graph_ppo'
+            rl['steps_per_episode']=int(st.number_input('每轮分户修改次数',min_value=1,max_value=128,value=int(rl.get('steps_per_episode',8)),key=f'{config_id}_partition_steps'))
+            rl['learning_rate']=float(st.number_input('分户策略学习率',min_value=.000001,value=float(rl.get('learning_rate',.0003)),format='%.6f',key=f'{config_id}_partition_rl_lr'))
             rl['seed']=int(st.number_input('分户策略随机种子',value=int(rl.get('seed',42)),key=f'{config_id}_partition_rl_seed'))
+            joint=floor_partition.setdefault('joint_search',{})
+            joint['enabled']=True
+            joint['max_area']=float(st.number_input('一次修改最大面积（㎡）',min_value=1.,value=float(joint.get('max_area',100.)),key=f'{config_id}_partition_max_area'))
+            joint['seconds_per_action']=float(st.number_input('每次局部搜索时间预算（秒）',min_value=.1,value=float(joint.get('seconds_per_action',1.5)),key=f'{config_id}_partition_seconds'))
         else:
             training["lr"] = float(st.number_input("学习率", min_value=0.000001, value=float(training.get("lr", 0.0003)), format="%.6f", key=f"{config_id}_ar_lr"))
             training["seed"] = int(st.number_input("随机种子", value=int(training.get("seed", 42)), key=f"{config_id}_ar_seed"))
     with right:
         if stage_is_floor_partition:
             st.markdown("### 当前阶段说明")
-            st.caption("沿交通核实际外轮廓生成走道，联合检查户门净空与间距；只保留通过结构对齐、面积、连通性和采光外墙约束的分户候选，再训练候选选择策略。每轮为一次方案选择；保留已验收的最佳方案。不是户内MAPPO，也不保证全局最优。")
+            st.caption("先获得可行初始方案，再由图策略多步选择修改交界和范围。局部搜索共同调整空间归属与户门，每步检查面积、外墙采光机会、进深、形态和通行；保留已验收的最好方案。当前初始方案仍依赖原有生成器，尚不支持分离交通核，也未证明跨建筑泛化。")
         else:
             st.markdown("### 矩形直接优化参数")
             if seed_mode:

@@ -3,44 +3,56 @@
   "errors": [],
   "units": {
     "A1_unit_01": {
-      "area": 77.11999999999998,
-      "target_area": 65.57999999999993,
-      "area_error_ratio": 0.1759682830131147,
-      "facade_length": 26.0,
-      "required_facade_length": 9.254399999999997,
-      "facade_per_area": 0.337136929460581,
-      "corners": 4
+      "area": 66.01999999999998,
+      "target_area": 65.57999999999998,
+      "area_error_ratio": 0.006709362610551965,
+      "facade_length": 24.3,
+      "required_facade_length": 7.922399999999998,
+      "facade_per_area": 0.36807028173280837,
+      "corners": 8,
+      "short_edges": 0,
+      "daylight_coverage_proxy": 1.0,
+      "unusable_area_ratio": 0.059980945168130906
     },
     "A1_unit_02": {
-      "area": 54.03999999999999,
-      "target_area": 65.57999999999993,
-      "area_error_ratio": 0.17596828301311296,
-      "facade_length": 7.0,
-      "required_facade_length": 6.484799999999999,
-      "facade_per_area": 0.1295336787564767,
-      "corners": 6
+      "area": 65.14,
+      "target_area": 65.57999999999998,
+      "area_error_ratio": 0.006709362610551748,
+      "facade_length": 8.7,
+      "required_facade_length": 7.8168,
+      "facade_per_area": 0.13355848940743015,
+      "corners": 12,
+      "short_edges": 1,
+      "daylight_coverage_proxy": 0.8004298434141847,
+      "unusable_area_ratio": 0.005526373963770361
     },
     "A1_unit_03": {
-      "area": 54.03999999999999,
-      "target_area": 65.57999999999993,
-      "area_error_ratio": 0.17596828301311296,
-      "facade_length": 7.0,
-      "required_facade_length": 6.484799999999999,
-      "facade_per_area": 0.1295336787564767,
-      "corners": 6
+      "area": 65.93999999999998,
+      "target_area": 65.57999999999998,
+      "area_error_ratio": 0.005489478499542536,
+      "facade_length": 8.7,
+      "required_facade_length": 7.912799999999998,
+      "facade_per_area": 0.13193812556869883,
+      "corners": 8,
+      "short_edges": 2,
+      "daylight_coverage_proxy": 0.7770700636942676,
+      "unusable_area_ratio": 0.005459326660600567
     },
     "A1_unit_04": {
-      "area": 77.11999999999998,
-      "target_area": 65.57999999999993,
-      "area_error_ratio": 0.1759682830131147,
-      "facade_length": 26.0,
-      "required_facade_length": 9.254399999999997,
-      "facade_per_area": 0.337136929460581,
-      "corners": 4
+      "area": 65.21999999999998,
+      "target_area": 65.57999999999998,
+      "area_error_ratio": 0.005489478499542536,
+      "facade_length": 24.3,
+      "required_facade_length": 7.826399999999998,
+      "facade_per_area": 0.37258509659613626,
+      "corners": 14,
+      "short_edges": 0,
+      "daylight_coverage_proxy": 1.0000000000000002,
+      "unusable_area_ratio": 0.06071668199938674
     }
   },
   "unassigned_area": 0.0,
   "corridor_area": 24.0,
   "structure_alignment_ratio": 1.0,
-  "daylight_method": "exposed_facade_length_per_net_area_proxy"
+  "daylight_method": "per_unit_exposed_facade_and_depth_coverage_proxy"
 }

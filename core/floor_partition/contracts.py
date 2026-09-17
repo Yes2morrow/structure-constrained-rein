@@ -60,6 +60,7 @@ class FloorPartitionProblem:
     profile: ResidentialProfile
     targets: tuple[PartitionTarget, ...]
     settings: dict = field(default_factory=dict)
+    search_settings: dict = field(default_factory=dict)
 
 
 def target_areas_for_area(problem: FloorPartitionProblem, allocatable_area: float) -> tuple[list[float], float]:
@@ -176,4 +177,5 @@ def build_floor_partition_problem(config: dict[str, Any]) -> FloorPartitionProbl
         profile=profile,
         targets=targets,
         settings=dict(floor_partition.get('quality', {})),
+        search_settings=dict(floor_partition.get('joint_search', {})),
     )

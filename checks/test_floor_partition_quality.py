@@ -79,8 +79,10 @@ class FloorQualityTests(unittest.TestCase):
 
     def test_rl_parameters_update_and_checkpoint(self):
         with tempfile.TemporaryDirectory() as folder:
-            with patch('core.floor_partition.training.candidate_partitions',return_value=self.pool):
-                _,report,summary=train_partition_policy(self.problem,self.config,folder,64)
+            config=copy.deepcopy(self.config)
+            config['FloorPartition']['rl']['algorithm']='legacy_bandit'
+            with patch('core.floor_partition.bandit.candidate_partitions',return_value=self.pool):
+                _,report,summary=train_partition_policy(self.problem,config,folder,64)
             self.assertGreater(summary['parameter_delta'],0)
             self.assertGreater(summary['final_expected_reward'],summary['initial_expected_reward'])
             self.assertEqual(summary['episodes_completed'],64)

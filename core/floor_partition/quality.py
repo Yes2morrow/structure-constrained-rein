@@ -12,13 +12,17 @@ def settings(problem):
     values = dict(area_tolerance=.30, min_facade_length=3., facade_per_area=.12,
                   min_unit_width=1.5, max_corners=24, door_clearance_depth=1.2,
                   door_clearance_width=1.2, entrance_depth=.9, beam_width=24,
-                  max_candidates=24, alignment_tolerance=1e-6)
+                  max_candidates=24, alignment_tolerance=1e-6,
+                  daylight_depth=6., min_daylight_coverage=.25,
+                  min_structure_alignment=1., max_unusable_ratio=.20)
     values.update(problem.settings)
     for key,value in values.items():
         if not isinstance(value,(float,int)) or not math.isfinite(value) or value <= 0:
             raise ValueError(f'FloorPartition.quality.{key} 必须是正有限数')
     if values['area_tolerance'] >= 1:
         raise ValueError('area_tolerance 必须小于1')
+    for key in ('min_daylight_coverage', 'min_structure_alignment', 'max_unusable_ratio'):
+        if values[key] > 1: raise ValueError(f'{key} must be <= 1')
     return values
 
 
@@ -77,6 +81,10 @@ def validate_partition(problem, result):
     expected={t.unit_id for t in problem.targets}
     if set(units)!=expected or set(doors)!=expected: errors.append('unit_or_door_ids')
     corridor=result.corridor
+    actual_free=problem.boundary.difference(problem.fixed_union).difference(corridor)
+    if actual_free.symmetric_difference(result.allocatable_space).area>1e-6:
+        errors.append('allocatable_space_mismatch')
+    if len(result.doors)!=len(expected): errors.append('duplicate_or_missing_doors')
     if corridor.geom_type!='Polygon' or not corridor.is_valid: errors.append('corridor_disconnected')
     if corridor.intersection(problem.fixed_union).area>1e-6: errors.append('corridor_structure_overlap')
     if corridor.difference(problem.boundary).area>1e-6: errors.append('corridor_outside')
@@ -84,6 +92,8 @@ def validate_partition(problem, result):
     if result.opening.difference(problem.traffic_core.boundary.buffer(1e-7)).length>1e-6: errors.append('opening_not_on_core')
     centre=corridor.buffer(-problem.profile.corridor_width/2+1e-5,join_style=2)
     if centre.is_empty or centre.geom_type!='Polygon': errors.append('corridor_width')
+    elif corridor.difference(centre.buffer(problem.profile.corridor_width/2,join_style=2)).area>1e-5:
+        errors.append('corridor_thin_appendage')
     for uid,poly in units.items():
         if poly.geom_type!='Polygon' or not poly.is_valid or poly.is_empty:
             errors.append(f'{uid}:disconnected'); continue
@@ -93,11 +103,21 @@ def validate_partition(problem, result):
         required=frontage_requirement(poly.area,q)
         error=abs(poly.area-result.target_areas[uid])/result.target_areas[uid]
         count=corners(poly)
+        coords=list(poly.simplify(1e-7,preserve_topology=True).exterior.coords)
+        short_edges=sum(1 for a,b in zip(coords,coords[1:])
+                        if LineString([a,b]).length<q['min_unit_width']-1e-6
+                        and LineString([a,b]).distance(problem.fixed_union)>1e-6)
         if length+1e-6<required: errors.append(f'{uid}:facade_deficit')
         if error>q['area_tolerance']+1e-6: errors.append(f'{uid}:area')
         if count>q['max_corners']: errors.append(f'{uid}:too_many_corners')
         eroded=poly.buffer(-q['min_unit_width']/2+1e-5,join_style=2)
         if eroded.is_empty or eroded.geom_type!='Polygon': errors.append(f'{uid}:narrow_or_disconnected')
+        unusable=poly.difference(eroded.buffer(q['min_unit_width']/2,join_style=2)).area/poly.area
+        if unusable>q['max_unusable_ratio']+1e-6: errors.append(f'{uid}:thin_appendage')
+        # Geometric opportunity only: no sun, glazing or obstruction simulation.
+        frontage=poly.boundary.intersection(exterior)
+        lit=poly.intersection(frontage.buffer(q['daylight_depth'])).area/poly.area
+        if lit+1e-6<q['min_daylight_coverage']: errors.append(f'{uid}:daylight_depth_deficit')
         door=doors.get(uid)
         if door:
             line=LineString(door.points)
@@ -107,7 +127,7 @@ def validate_partition(problem, result):
             if not door_clearance(door,poly,corridor,q): errors.append(f'{uid}:door_clearance')
         metrics[uid]=dict(area=poly.area,target_area=result.target_areas[uid],area_error_ratio=error,
                           facade_length=length,required_facade_length=required,facade_per_area=length/poly.area,
-                          corners=count)
+                          corners=count,short_edges=short_edges,daylight_coverage_proxy=lit,unusable_area_ratio=unusable)
     polygons=list(units.values()); merged=unary_union(polygons)
     if sum(p.area for p in polygons)-merged.area>1e-6: errors.append('unit_overlap')
     missing=merged.symmetric_difference(result.allocatable_space).area
@@ -128,8 +148,17 @@ def validate_partition(problem, result):
                     seg=LineString([p,r]); shared_total+=seg.length
                     ok=any(abs(p[d]-r[d])<1e-7 and any(abs(p[d]-v)<=q['alignment_tolerance'] for v in axes[d]) for d in (0,1))
                     if ok: aligned+=seg.length
-                    else: errors.append('partition_edge_off_structure_grid')
+                    else:
+                        # Supplementary modular lines allow useful concavity, while
+                        # a separate ratio retains structural preference.
+                        modular=any(abs(p[d]-r[d])<1e-7 and
+                            abs((p[d]-problem.boundary.bounds[d])/problem.profile.grid_size-
+                                round((p[d]-problem.boundary.bounds[d])/problem.profile.grid_size))<1e-6
+                            for d in (0,1))
+                        if not modular: errors.append('partition_edge_off_structure_grid')
+    alignment=aligned/shared_total if shared_total else 1.
+    if alignment+1e-6<q['min_structure_alignment']: errors.append('structure_alignment_deficit')
     return dict(valid=not errors,errors=sorted(set(errors)),units=metrics,
                 unassigned_area=missing,corridor_area=corridor.area,
-                structure_alignment_ratio=aligned/shared_total if shared_total else 1.,
-                daylight_method='exposed_facade_length_per_net_area_proxy')
+                structure_alignment_ratio=alignment,
+                daylight_method='per_unit_exposed_facade_and_depth_coverage_proxy')

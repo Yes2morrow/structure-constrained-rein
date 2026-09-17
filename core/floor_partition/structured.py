@@ -18,9 +18,13 @@ def lines(geometry):
     return [p for g in getattr(geometry,'geoms',[]) for p in lines(g)]
 
 
-def unit_doors(problem, circulation, polygons):
+def unit_doors(problem, circulation, polygons, locked=(), allowed_window=None):
     q=settings(problem); width=problem.profile.door_width; choices={}
     for uid,poly in polygons.items():
+        existing=next((d for d in locked if d.unit_id==uid),None)
+        if existing is not None:
+            choices[uid]=[existing]
+            continue
         candidates=[]
         contact=poly.boundary.intersection(circulation.corridor.boundary)
         for line in lines(contact):
@@ -38,6 +42,8 @@ def unit_doors(problem, circulation, polygons):
                     r=edge.interpolate(position+width/2).coords[0]
                     label='horizontal' if abs(p[1]-r[1])<1e-7 else 'vertical'
                     d=Door(uid,(p,r),label,position)
+                    if allowed_window is not None and not allowed_window.buffer(1e-7).covers(LineString(d.points)):
+                        continue
                     if door_clearance(d,poly,circulation.corridor,q): candidates.append(d)
         # Keep geographically spread candidates, rather than only one edge.
         unique={tuple(round(v,6) for p in d.points for v in p):d for d in candidates}
@@ -47,7 +53,11 @@ def unit_doors(problem, circulation, polygons):
             candidates=[candidates[round(i*(len(candidates)-1)/23)] for i in range(24)]
         choices[uid]=candidates
     ordered=sorted(choices,key=lambda u:len(choices[u])); selected=[]
+    attempts=0
     def choose(index):
+        nonlocal attempts
+        attempts+=1
+        if attempts>5000: return False
         if index==len(ordered): return True
         for door in choices[ordered[index]]:
             if any(LineString(door.points).distance(LineString(d.points))+1e-7<problem.profile.min_door_spacing for d in selected): continue
@@ -55,7 +65,9 @@ def unit_doors(problem, circulation, polygons):
             if choose(index+1): return True
             selected.pop()
         return False
-    if not choose(0): raise ValueError('户门之间无法满足最小净间距')
+    if not choose(0):
+        if attempts>5000: raise ValueError('door_search_budget_exhausted')
+        raise ValueError('当前门位候选中未找到满足最小净间距的组合')
     return tuple(sorted(selected,key=lambda d:d.unit_id))
 
 

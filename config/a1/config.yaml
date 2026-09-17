@@ -45,10 +45,28 @@ FloorPartition:
     entrance_depth: 0.9
     beam_width: 32
     max_candidates: 24
+    min_structure_alignment: 0.65
+    daylight_depth: 6.0
+    min_daylight_coverage: 0.45
+    max_unusable_ratio: 0.12
+  joint_search:
+    enabled: true
+    cell_size: 1.5
+    radii: [2, 4, 8]
+    max_cells: 160
+    max_area: 100.0
+    max_actions: 36
+    proposals: 32
+    steps: 12
+    seconds_per_action: 1.5
+    seed: 42
   rl:
     enabled: true
+    algorithm: graph_ppo
+    steps_per_episode: 8
+    ppo_epochs: 3
     episodes: 128
-    learning_rate: 0.01
+    learning_rate: 0.0003
     entropy_coef: 0.02
     seed: 42
 ExistingBuilding:

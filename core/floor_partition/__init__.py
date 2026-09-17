@@ -13,7 +13,7 @@ from .growth import PartitionResult, grow_residential_units
 
 
 def run_residential_floor_partition(config: dict):
-    """Deterministic preview; reuse identical geometry across GUI panels."""
+    """Budgeted preview; reuse identical geometry across GUI panels."""
     relevant={key:config.get(key,{}) for key in ('ExistingBuilding','FloorPartition','AdaptiveReuseEnvironment')}
     return deepcopy(_preview_cached(json.dumps(relevant,sort_keys=True)))
 
@@ -24,6 +24,9 @@ def _preview_cached(serialized):
     problem = build_floor_partition_problem(config)
     from .structured import candidate_partitions
     result, _ = candidate_partitions(problem)[0]
+    if problem.search_settings.get('enabled', True):
+        from .joint import search_joint
+        result, _, _ = search_joint(problem, result, steps=int(problem.search_settings.get('preview_steps', 4)))
     return problem, result
 
 

@@ -1,4 +1,4 @@
-"""楼层分区入口：先生成住宅走道/门位/规则分区，再导出每户配置。"""
+"""楼层联合分区入口：图策略或普通局部搜索，独立验收后导出。"""
 
 from __future__ import annotations
 
@@ -104,6 +104,8 @@ def parse_args():
     parser.add_argument('--episodes',type=int,default=None)
     parser.add_argument('--no-rl',action='store_true',help='仅运行结构约束搜索与验收')
     parser.add_argument('--output-dir',type=Path,default=None)
+    parser.add_argument('--search-steps',type=int,default=None,help='普通联合搜索的修改次数')
+    parser.add_argument('--checkpoint',type=Path,default=None,help='加载联合PPO权重，仅执行推理')
     parser.add_argument('--stop-file',type=Path,default=Path(STOP_REQUEST_FILE))
     return parser.parse_args()
 
@@ -120,11 +122,23 @@ def main():
     print(f'结果目录: {output_dir}',flush=True)
     problem=build_floor_partition_problem(config)
     rl_summary=None
-    if not args.no_rl and config.get('FloorPartition',{}).get('rl',{}).get('enabled',True):
+    if args.checkpoint:
+        import torch
+        torch.set_num_threads(1)
+        from core.floor_partition.training import GraphPolicy, policy_rollout
+        checkpoint=torch.load(args.checkpoint,map_location='cpu',weights_only=False)
+        if checkpoint.get('schema')!='floor-partition-joint-ppo-v2':
+            raise ValueError('checkpoint 不是联合分户PPO模型')
+        model=GraphPolicy(); model.load_state_dict(checkpoint['state_dict']); model.eval()
+        result,quality,history=policy_rollout(problem,model,steps=args.search_steps or 8)
+        (output_dir/'search_history.json').write_text(json.dumps(history,indent=2),encoding='utf-8')
+    elif not args.no_rl and config.get('FloorPartition',{}).get('rl',{}).get('enabled',True):
         result,quality,rl_summary=train_partition_policy(problem,config,output_dir,args.episodes,args.stop_file)
     else:
-        problem,result=run_residential_floor_partition(config)
-        quality=validate_partition(problem,result)
+        from core.floor_partition.joint import search_joint
+        if args.search_steps is not None and args.search_steps<1: raise ValueError('search-steps must be positive')
+        result,quality,search_summary=search_joint(problem,steps=args.search_steps,stop_file=args.stop_file)
+        (output_dir/'search_history.json').write_text(json.dumps(search_summary,indent=2),encoding='utf-8')
     (output_dir/'validation.json').write_text(json.dumps(quality,ensure_ascii=False,indent=2),encoding='utf-8')
     export_paths = export_unit_configs(config, result, output_dir / "exports")
     _render_partition(config, result, output_dir)
