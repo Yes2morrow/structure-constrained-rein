@@ -1,4 +1,5 @@
 """Atomic offline layout artifacts, explicit failures and same-snapshot reuse."""
+from common.plan_styles import DOOR_COLOR
 import hashlib
 import json
 import os
@@ -95,7 +96,7 @@ def layout_svg(problem, snapshot, polygons, status):
         parts.append(f'<text x="{x+.1}" y="{-y}" font-size="0.25">{escape(key)}</text>')
     if problem.entrance is not None:
         points=' '.join(f'{x},{-y}' for x,y in problem.entrance.coords)
-        parts.append(f'<polyline points="{points}" fill="none" stroke="#00897b" stroke-width="0.12"/>')
+        parts.append(f'<polyline points="{points}" fill="none" stroke="{DOOR_COLOR}" stroke-width="0.12"/>')
     draw(problem.fixed,'#455a64')
     parts.append(f'<text x="{x0}" y="{-y1-.7}" font-size="0.35">Precise: {status}; episodes={snapshot.completed_episodes}, step={snapshot.step}</text></svg>')
     return '\n'.join(parts)

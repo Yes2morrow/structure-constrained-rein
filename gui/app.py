@@ -48,6 +48,15 @@ def run_app() -> None:
     apply_streamlit_patches()
     configure_page()
     apply_theme()
+    route=st.session_state.pop('workflow_route',None)
+    if route:
+        if route.get('config_id'):
+            from gui.config_store import persist_selected_config_id
+            persist_selected_config_id(route['config_id'])
+            st.session_state.selected_config_id=route['config_id']
+            st.session_state.config_selector=route['config_id']
+        st.session_state.main_view=route['view']
+        st.session_state.main_view_selector=route['view']
     init_session_state(is_process_running)
 
     config_id = render_config_selector()
@@ -64,6 +73,7 @@ def run_app() -> None:
     render_sidebar_controls(config, config_id)
 
     view_options = (["环境搭建"] if is_adaptive_reuse else []) + ["参数配置", "训练监控", "布局预览"]
+    if is_adaptive_reuse: view_options += ['整体合成']
     current_view = st.session_state.get("main_view", "参数配置")
     if current_view not in view_options:
         current_view = "参数配置"
@@ -102,6 +112,16 @@ def run_app() -> None:
             render_monitor_fragment()
         else:
             _render_monitor_tab(agent_name, configured_episodes, render_enabled)
+    elif st.session_state.main_view == '整体合成':
+        from gui.floor_workflow_page import render_floor_workflow
+        render_floor_workflow()
+    elif is_adaptive_reuse and config.get('Training',{}).get('training_stage')=='floor_partition':
+        from gui.floor_workflow_page import render_floor_results
+        render_floor_results(config,config_id)
+    elif config.get('FloorWorkflow'):
+        from gui.seed_page import render_seed_results
+        st.info('这是当前户型的房间训练结果。完成后进入「整体合成」选择合格结果，并继续下一户。')
+        render_seed_results(config_id,config)
     else:
         _render_preview_tab()
 

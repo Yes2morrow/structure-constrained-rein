@@ -183,3 +183,31 @@ def build_floor_partition_problem(config: dict[str, Any]) -> FloorPartitionProbl
         settings=dict(floor_partition.get('quality', {})),
         search_settings=dict(floor_partition.get('joint_search', {})),
     )
+
+
+@dataclass(frozen=True)
+class Door:
+    unit_id: str
+    points: tuple[tuple[float, float], tuple[float, float]]
+    edge: str
+    corridor_distance: float
+
+    @property
+    def center(self) -> tuple[float, float]:
+        return (
+            (self.points[0][0] + self.points[1][0]) / 2.0,
+            (self.points[0][1] + self.points[1][1]) / 2.0,
+        )
+
+
+@dataclass(frozen=True)
+class PartitionResult:
+    corridor: object
+    opening: object
+    opening_side: str
+    allocatable_space: object
+    doors: tuple[Door, ...]
+    unit_polygons: dict[str, object]
+    target_areas: dict[str, float]
+    requested_areas: dict[str, float]
+    area_scale: float

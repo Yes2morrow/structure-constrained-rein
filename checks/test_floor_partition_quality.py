@@ -29,13 +29,13 @@ class FloorQualityTests(unittest.TestCase):
 
     def test_modular_symmetric_geometry(self):
         p=self.problem
-        self.assertTrue(p.boundary.equals(scale(p.boundary,xfact=-1,yfact=1,origin=(15,0))))
-        self.assertTrue(p.traffic_core.equals(scale(p.traffic_core,xfact=-1,yfact=1,origin=(15,0))))
+        self.assertTrue(p.boundary.equals(scale(p.boundary,xfact=-1,yfact=1,origin=(14,0))))
+        self.assertTrue(p.traffic_core.equals(scale(p.traffic_core,xfact=-1,yfact=1,origin=(14,0))))
         columns=[i for i in p.fixed_objects if i['type']=='column']
-        self.assertEqual(len(columns),16)
+        self.assertEqual(len(columns),18)
         for c in columns:
             self.assertEqual(c['size'],[.6,.8])
-            self.assertTrue(all(v==int(v) for v in c['center']))
+            self.assertTrue(all(abs(v*1000-round(v*1000))<1e-6 for v in c['center']))
             self.assertLess(fixed_polygon(c).difference(p.boundary).area,1e-7)
         self.assertFalse(any(i['type']=='retained_circulation' for i in p.fixed_objects))
 

@@ -9,6 +9,19 @@ from core.envs.structure_geometry import column,wall,zone
 
 
 class EnvironmentCanvasTest(unittest.TestCase):
+    def test_core_hatching_and_dark_structure_preserve_scene_identity(self):
+        from gui.structure_canvas import canvas_objects
+        from common.plan_styles import STRUCTURE_FILL
+        items=self.c['ExistingBuilding']['fixed_objects']
+        objects=canvas_objects(items,self.c['ExistingBuilding']['boundary'],self.w,self.h,CONSTRAINT_STYLES)
+        for item,obj in zip(items,objects):
+            if item['type']=='traffic_core':
+                self.assertEqual(obj['fill']['type'],'pattern')
+                self.assertIn('data:image/svg+xml',obj['fill']['source'])
+            else:
+                self.assertEqual(obj['fill'],STRUCTURE_FILL)
+        self.assertEqual(parse_scene(scene(self.c,self.w,self.h,CONSTRAINT_STYLES),self.c,self.w,self.h),self.c)
+
     def setUp(self):
         import yaml
         from pathlib import Path

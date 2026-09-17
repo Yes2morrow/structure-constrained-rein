@@ -1,4 +1,5 @@
 """Render committed continuous polygons; never rerun growth or move seeds."""
+from common.plan_styles import DOOR_COLOR
 from pathlib import Path
 import json
 import matplotlib
@@ -39,7 +40,7 @@ def render_result(config, result, output):
             point=shape(value).representative_point()
             positions.setdefault(key,(point.x,point.y))
         if problem.entrance is not None:
-            dx,dy=problem.entrance.xy; ax.plot(dx,dy,color='#00897b',lw=5,label='户门（客厅入口）'); ax.legend()
+            dx,dy=problem.entrance.xy; ax.plot(dx,dy,color=DOOR_COLOR,lw=5,label='户门（客厅入口）'); ax.legend()
         relations=result['validation']['relations']
         for edge in relations:
             if edge['kind']!='adjacent': continue

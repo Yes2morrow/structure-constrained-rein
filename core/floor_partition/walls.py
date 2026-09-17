@@ -6,12 +6,15 @@ are not thickened again. Net floor excludes the entire wall reservation, with
 door thresholds reported separately from the solid wall.
 """
 from dataclasses import dataclass, replace
+from shapely import set_precision
 from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union, linemerge
 from shapely.affinity import translate
 
 from .contracts import target_areas_for_area
 from core.envs.structure_geometry import fixed_polygon
+
+STRUCTURAL_WALL_TYPES = {'shear_wall', 'load_bearing_wall', 'bearing_wall'}
 
 
 @dataclass(frozen=True)
@@ -25,7 +28,10 @@ class WallGeometry:
 
 
 def wall_geometry(problem, corridor, units, doors=()):
-    parts=[corridor,*units.values()]
+    # Reassembled graph cells can differ at 1e-14 on a shared edge. Exact
+    # intersections would then silently omit its wall despite valid contact.
+    # Snap only the line-construction copies, never the original structures.
+    parts=[set_precision(p,1e-8) for p in [corridor,*units.values()]]
     shared=[a.boundary.intersection(b.boundary) for i,a in enumerate(parts) for b in parts[i+1:]]
     def line_parts(g):
         if g.geom_type=='LineString': return [g]
@@ -73,7 +79,7 @@ def structural_center_axes(problem):
         p=fixed_polygon(obj)
         if kind=='column':
             axes[0].add(p.centroid.x); axes[1].add(p.centroid.y)
-        elif kind in ('wall','shear_wall','bearing_wall'):
+        elif kind in STRUCTURAL_WALL_TYPES:
             x0,y0,x1,y1=p.bounds
             dim=0 if x1-x0<y1-y0 else 1
             axes[dim].add((p.centroid.x,p.centroid.y)[dim])
@@ -91,7 +97,7 @@ def structural_reference_axes(problem):
     half=problem.profile.wall_thickness/2
     for obj in problem.fixed_objects:
         kind=obj.get('type')
-        if kind not in ('column','wall','shear_wall','bearing_wall'): continue
+        if kind != 'column' and kind not in STRUCTURAL_WALL_TYPES: continue
         p=fixed_polygon(obj); bounds=p.bounds
         dims=(0,1) if kind=='column' else (0,) if bounds[2]-bounds[0]<bounds[3]-bounds[1] else (1,)
         for d in dims:

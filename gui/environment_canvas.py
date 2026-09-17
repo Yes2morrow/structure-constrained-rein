@@ -1,4 +1,5 @@
 """One ID-based editable scene for the complete retrofit environment."""
+from common.plan_styles import DOOR_COLOR
 from copy import deepcopy
 import hashlib
 import math
@@ -102,7 +103,7 @@ def scene(config,width,height,styles,layer='all',selected=None,display=None):
     ]
     door=[dict(x=ox+x*scale,y=oy-y*scale) for x,y in entrance_points(b)]
     if len(door)>=2:
-        objects.append(dict(type='polyline',points=door,left=min(p['x'] for p in door),top=min(p['y'] for p in door),fill='',stroke='#2d6f9f',strokeWidth=7,selectable=False,evented=False,**appearance('boundary')))
+        objects.append(dict(type='polyline',points=door,left=min(p['x'] for p in door),top=min(p['y'] for p in door),fill='',stroke=DOOR_COLOR,strokeWidth=7,selectable=False,evented=False,**appearance('boundary')))
     for item in config.get('TargetSpaces',[]):
         if item.get('role')=='residual': continue
         colorized = bool(config.get('InteriorTrainingEnvironment'))
@@ -113,7 +114,7 @@ def scene(config,width,height,styles,layer='all',selected=None,display=None):
         if not config.get('InteriorTrainingEnvironment'):
             objects.append(dict(type='text',text='初始·'+item.get('name',item['id']),
                                 left=ox+x1*scale+4,top=oy-y2*scale+4,fontSize=12,fill='#123456',selectable=False,evented=False,visible=appearance('agent')['visible'] and display.get('labels',(True,0))[0],opacity=appearance('agent')['opacity']))
-    palette=dict(boundary='#ef6c00',agent='#1976d2',seed='#8e24aa',column='#455a64',wall='#c62828',fixed='#546e7a',fixed_rect='#546e7a',door='#00897b')
+    palette=dict(boundary='#ef6c00',agent='#1976d2',seed='#8e24aa',column='#455a64',wall='#c62828',fixed='#546e7a',fixed_rect='#546e7a',door=DOOR_COLOR)
     for key,p in controls(config).items():
         shown=appearance(control_layer(key,config))
         active=shown['visible'] and (layer=='all' or key[0]==layer) and (selected is None or key[1]==selected)

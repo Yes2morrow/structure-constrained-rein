@@ -3,14 +3,13 @@
 No staircase raster growth, disconnected-cell fallback, or largest-part loss.
 Concave polygons and column holes are retained exactly.
 """
-import math
+from dataclasses import replace
 from shapely.geometry import box, LineString
-from .contracts import target_areas_for_area
+from shapely.ops import linemerge, unary_union
+from .contracts import target_areas_for_area, Door, PartitionResult
 from .circulation import circulation_candidates
-from .doors import Door
-from .growth import PartitionResult
 from .walls import wall_geometry, update_net_targets
-from .quality import (settings, structural_axes, facade, frontage_requirement,
+from .quality import (settings, structural_axes, facade,
                       corners, door_clearance, validate_partition)
 
 
@@ -30,6 +29,8 @@ def unit_doors(problem, circulation, polygons, locked=(), allowed_window=None):
             continue
         candidates=[]
         contact=poly.boundary.intersection(circulation.corridor.boundary)
+        contact=unary_union(lines(contact))
+        if contact.geom_type=='MultiLineString': contact=linemerge(contact)
         for line in lines(contact):
             # GEOS may retain collinear nodes; simplify before sampling segments.
             line=line.simplify(1e-7)
@@ -74,18 +75,12 @@ def unit_doors(problem, circulation, polygons, locked=(), allowed_window=None):
     return tuple(sorted(selected,key=lambda d:d.unit_id))
 
 
-def score_report(report):
-    """Bounded, dimensionless reward; hard failures are never candidates."""
-    units=list(report['units'].values())
-    area=sum(m['area_error_ratio'] for m in units)/len(units)
-    excess=sum(max(0,m['corners']-4) for m in units)/len(units)
-    ratios=[m['facade_length']/m['required_facade_length'] for m in units]
-    return 10.-8*area-.10*excess+.4*min(min(ratios),2.)-.035*report['corridor_area']+.8*report.get('consistent_reference_alignment_ratio',0.)
+from .scoring import partition_score as score_report
 
 
 def candidate_partitions(problem):
     q=settings(problem); axes=structural_axes(problem,include_wall_faces=False); exterior=facade(problem)
-    accepted=[]; seen=set(); diagnostics=[]
+    accepted=[]; seen=set(); diagnostics=[]; repair_seeds=[]
     for circulation in circulation_candidates(problem):
         free=problem.boundary.difference(problem.fixed_union).difference(circulation.corridor)
         if free.geom_type!='Polygon':
@@ -97,7 +92,7 @@ def candidate_partitions(problem):
         beam=[[(free,tuple(range(len(targets))))]]
         def rank(state):
             return sum(abs(p.area-sum(targets[i] for i in ids))/sum(targets[i] for i in ids)
-                       +.004*corners(p) for p,ids in state)
+                       +.004*corners(p,problem) for p,ids in state)
         for _ in range(len(targets)-1):
             next_states=[]; unique=set()
             for state in beam:
@@ -117,11 +112,14 @@ def candidate_partitions(problem):
                             for p,group in groups:
                                 target=sum(targets[i] for i in group)
                                 if abs(p.area-target)/target>q['area_tolerance']: valid=False; break
-                                if p.boundary.intersection(exterior).length+1e-6 < max(q['min_facade_length']*len(group),p.area*q['facade_per_area']): valid=False; break
+                                # The area-dependent frontage requirement uses NET
+                                # area after walls. Gross-area pruning here can
+                                # discard a valid completed partition prematurely.
+                                if p.boundary.intersection(exterior).length+1e-6 < q['min_facade_length']*len(group): valid=False; break
                                 if p.boundary.intersection(circulation.corridor.boundary).length+1e-6 < problem.profile.door_width*len(group): valid=False; break
                                 inset=p.buffer(-q['min_unit_width']/2+1e-5,join_style=2)
                                 if inset.is_empty or inset.geom_type!='Polygon': valid=False; break
-                                if len(group)==1 and corners(p)>q['max_corners']: valid=False; break
+                                if len(group)==1 and corners(p,problem)>q['max_corners']: valid=False; break
                             if not valid: continue
                             new=state[:at]+groups+state[at+1:]
                             key=tuple((p.wkb,g) for p,g in new)
@@ -131,22 +129,28 @@ def candidate_partitions(problem):
         for state in beam:
             if any(len(ids)!=1 for _,ids in state): continue
             units={problem.targets[ids[0]].unit_id:p for p,ids in state}
-            try: doors=unit_doors(problem,circulation,units)
-            except ValueError as exc: diagnostics.append(str(exc)); continue
             result=PartitionResult(circulation.corridor,circulation.opening,circulation.opening_side,
-                free,doors,units,{t.unit_id:targets[i] for i,t in enumerate(problem.targets)},
+                free,(),units,{t.unit_id:targets[i] for i,t in enumerate(problem.targets)},
                 {t.unit_id:t.requested_area for t in problem.targets},scale)
             result=update_net_targets(problem,result)
+            if state is beam[0]:
+                repair_seeds.append((result,{'corridor_area':circulation.corridor.area}))
+            try: doors=unit_doors(problem,circulation,units)
+            except ValueError as exc: diagnostics.append(str(exc)); continue
+            result=replace(result,doors=doors)
             report=validate_partition(problem,result)
             if not report['valid']:
                 diagnostics.extend(report['errors']); continue
             key=tuple(p.wkb for _,p in sorted(units.items()))
             if key not in seen: accepted.append((result,report)); seen.add(key)
-    if accepted:
+    if accepted or repair_seeds:
         from .lobby import compact_starts
         # Short bands avoid inheriting gratuitous branches/column bypasses when
         # testing an alternative compact topology.
         seeds=sorted(accepted,key=lambda pair:(pair[1]['corridor_area'],-score_report(pair[1])))[:2]
+        # Door placement must not be a prerequisite for trying another
+        # circulation topology. Provisional starts are NEVER returned as valid.
+        if not seeds: seeds=repair_seeds[-4:]
         accepted.extend(compact_starts(problem,seeds))
     if not accepted:
         raise ValueError('结构分户搜索未找到通过面积、采光外墙、连通性和门前净空验收的方案。'

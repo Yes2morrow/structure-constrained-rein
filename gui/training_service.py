@@ -57,6 +57,11 @@ def training_command(config, config_id):
             script=os.path.join(os.path.dirname(TRAIN_SCRIPT),'train_floor_partition.py')
             return [sys.executable,'-u',script,'--config-id',str(config_id)]
         seed=dict(config.get('SeedGrowth',{}))
+        if config.get('FloorWorkflow'):
+            if not config.get('TargetSpaces'):
+                raise ValueError('请先在「环境搭建 → 智能体与关系」中添加房间并保存，再开始该户训练。')
+            if not seed.get('enabled',False):
+                raise ValueError('逐户合成需要精确多边形结果，请在参数配置中保存图种子模式。')
         if any(r.get('role')=='residual' for r in config.get('TargetSpaces',[])): seed['enabled']=True
         script=os.path.join(os.path.dirname(TRAIN_SCRIPT),'train_seed_layout.py' if seed.get('enabled',False) else 'train_adaptive_reuse.py')
         if seed.get('enabled',False) and str(seed.get('resume_run','')).strip():

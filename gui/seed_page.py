@@ -1,4 +1,5 @@
 """Rectangular retrofit acceleration controls and read-only saved precise output."""
+from common.plan_styles import DOOR_COLOR
 from copy import deepcopy
 import json
 from pathlib import Path
@@ -115,7 +116,7 @@ def render_seed_preview(config):
             ax.scatter(x,y,c='#00897b' if public else 'black',marker='D' if public else 'o',s=24 if public else 14)
             ax.annotate(key+' (region)' if public else key,(x,y),fontsize=8)
         if problem.entrance is not None:
-            dx,dy=problem.entrance.xy; ax.plot(dx,dy,color='#00897b',lw=5,label='入口→客厅')
+            dx,dy=problem.entrance.xy; ax.plot(dx,dy,color=DOOR_COLOR,lw=5,label='入口→客厅')
         _draw(ax,problem.fixed,'#455a64')
         x,y=problem.boundary.exterior.xy; ax.plot(x,y,color='black'); ax.set_aspect('equal')
         _, preview_column, _ = st.columns([1, 2, 1])
@@ -138,10 +139,15 @@ def read_precise(run):
     return config,result
 
 
-def render_seed_results(config_id):
+def render_seed_results(config_id, config=None):
     st.markdown('#### 已保存的精确成图')
     root=Path(RESULTS_DIR)/'seed_experimental'
     runs=sorted((p for p in root.glob('*') if p.is_dir() and (p/'latest_precise.json').exists()),reverse=True)
+    if config and config.get('FloorWorkflow'):
+        from core.floor_partition.workflow import matching_runs
+        ref=config['FloorWorkflow']
+        allowed=set(matching_runs(RESULTS_DIR,ref['plan_id'],ref['unit_id']))
+        runs=[p for p in runs if p in allowed]
     if not runs:
         st.caption('尚无精确产物；在第 250 轮、训练结束或停止后生成。')
         return
@@ -168,7 +174,7 @@ def render_seed_results(config_id):
             x,y=snap['seeds'].get(key,[point.x,point.y]); ax.annotate(key,(x,y),fontsize=8)
             if key in snap['seeds']: ax.scatter(x,y,c='black',s=14)
         if problem.entrance is not None:
-            dx,dy=problem.entrance.xy; ax.plot(dx,dy,color='#00897b',lw=5,label='入口→客厅')
+            dx,dy=problem.entrance.xy; ax.plot(dx,dy,color=DOOR_COLOR,lw=5,label='入口→客厅')
         _draw(ax,problem.fixed,'#455a64')
         x,y=problem.boundary.exterior.xy; ax.plot(x,y,c='black'); ax.autoscale_view(); ax.set_aspect('equal')
         st.pyplot(fig); plt.close(fig)

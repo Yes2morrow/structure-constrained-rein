@@ -5,12 +5,13 @@ from __future__ import annotations
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
+import json
 
 import yaml
 from shapely.geometry import Polygon
 from core.envs.structure_geometry import fixed_polygon
 
-from .growth import PartitionResult
+from .contracts import PartitionResult
 from .walls import wall_geometry, unit_face_door
 
 
@@ -99,6 +100,8 @@ def export_unit_configs(config: dict[str, Any], result: PartitionResult, output_
     physical=wall_geometry(problem,result.corridor,result.unit_polygons,result.doors)
     if not report['valid']:
         raise ValueError('分户结果未通过独立验收，拒绝导出: '+', '.join(report['errors']))
+    from .snapshot import floor_snapshot
+    snapshot=floor_snapshot(config,problem,result)
     base_dir = Path(output_dir)
     base_dir.mkdir(parents=True, exist_ok=True)
     fixed_objects = list(config.get("ExistingBuilding", {}).get("fixed_objects", []))
@@ -122,6 +125,7 @@ def export_unit_configs(config: dict[str, Any], result: PartitionResult, output_
                 "door_centerline_positions": _door_positions(doors[unit_id]),
                 "wall_thickness": problem.profile.wall_thickness,
                 "partition_boundary_reference": "wall_centerline",
+                "partition_wall_role": "generated_non_load_bearing_partition",
                 "unit_territory_boundary": _polygon_boundary(result.unit_polygons[unit_id]),
                 "door_edge": doors[unit_id].edge,
                 "target_area": round(float(result.target_areas[unit_id]), 6),
@@ -130,6 +134,8 @@ def export_unit_configs(config: dict[str, Any], result: PartitionResult, output_
                 "corridor_territory": _polygon_boundary(result.corridor),
                 "opening_side": result.opening_side,
                 "floor_outline": floor_outline,
+                "floor_plan_id": snapshot['plan_id'],
+                "coordinate_system": "original_floor_metres",
             }
         )
         exported["ExistingBuilding"]["boundary"] = _polygon_boundary(unit_polygon)
@@ -180,4 +186,5 @@ def export_unit_configs(config: dict[str, Any], result: PartitionResult, output_
         "door_threshold_area": physical.thresholds.area,
     }
     (base_dir / "summary.yaml").write_text(yaml.safe_dump(summary, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    (base_dir / 'floor_plan.json').write_text(json.dumps(snapshot,ensure_ascii=False,indent=2),encoding='utf8')
     return written

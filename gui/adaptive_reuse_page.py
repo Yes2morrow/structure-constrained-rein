@@ -28,6 +28,9 @@ from core.envs import AdaptiveReuseEnv, summarize_target_area_budget, redistribu
 from core.envs.structure_geometry import fixed_polygon, normalize_structures
 from core.floor_partition import build_floor_partition_problem, run_residential_floor_partition
 from core.floor_partition.walls import wall_geometry
+from gui.partition_overlay import partition_overlay
+from gui.partition_settings import render_partition_constraints, net_unit_archive
+from core.floor_partition.quality import validate_partition
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 from gui.config_store import load_config, save_config
@@ -70,7 +73,7 @@ CONSTRAINT_STYLES = {
 }
 
 # 修改默认案例时同步升级此值，防止浏览器端旧组件状态覆盖新的平面配置。
-REFERENCE_PLAN_UI_VERSION = "structure_sync_v3"
+REFERENCE_PLAN_UI_VERSION = "input_only_v5"
 
 ROLE_OPTIONS = ["agent", "residual"]
 RELATION_TYPE_OPTIONS = ["none", "adjacent", "separate", "connected"]
@@ -610,7 +613,7 @@ def _create_tangwu_plan_image(config: dict, width: int, height: int, grid_only=F
     # 住宅主入口符号，帮助辨识既有住宅的中轴与朝向。
     opening=[point(x,y) for x,y in entrance_points(building)]
     if len(opening)>=2:
-        draw.line(opening,fill='#2d6f9f',width=7)
+        draw.line(opening,fill='#facc15',width=7)
     draw.text((12, 10), "既有住宅·原始平面", fill="#1f3448", font=title_font)
     return image
 
@@ -673,7 +676,9 @@ def _render_target_editor(config, config_id):
     st.markdown("### 目标功能空间智能体")
     st.caption("下表列出全部目标空间图节点。`role=agent` 会创建可训练智能体；`role=residual` 仅作为剩余公共空间/关系节点存在，常用于客厅。")
     target_df = st.data_editor(
-        pd.DataFrame(_target_records(config.get("TargetSpaces", []))),
+        pd.DataFrame(_target_records(config.get("TargetSpaces", [])),columns=[
+            'id','name','role','x1','y1','x2','y2','target_area','min_area','max_area',
+            'aspect_min','aspect_max','seed_x','seed_y']),
         num_rows="dynamic", use_container_width=True, key=f"{config_id}_ar_targets_{REFERENCE_PLAN_UI_VERSION}_{revision}",
         column_config={
             "role": st.column_config.SelectboxColumn("role", options=ROLE_OPTIONS, help="agent=独立智能体；residual=剩余公共空间节点"),
@@ -682,6 +687,9 @@ def _render_target_editor(config, config_id):
         },
     )
     config["TargetSpaces"] = _records_to_targets(target_df,config.get('TargetSpaces',[]))
+    if not config['TargetSpaces']:
+        st.info('此户尚未配置房间。请在表格中添加房间及面积要求，保存后再开始第二阶段训练。坐标沿用原楼层，边界已扣除分户隔墙厚度。')
+        return True
     residual_rooms=[r for r in config.get('TargetSpaces',[]) if _normalize_role(r.get('role'))=='residual']
     if residual_rooms:
         public=residual_rooms[0]
@@ -808,7 +816,7 @@ def _render_plan_constraint_editor(
     if show_heading:
         st.markdown("### 二维原始平面与前期约束标注")
     st.caption('参数表与画布共用一份构件数据。有效修改自动保存到 YAML 并双向同步；新增表格行请先补全必填数据。')
-    stage_valid = _render_floor_partition_section(config, config_id)
+    stage_valid = _render_floor_partition_section(config, config_id, preview=False)
     stage_is_floor_partition = _is_floor_partition_stage(config)
     st.markdown("---")
 
@@ -883,10 +891,14 @@ def _render_plan_constraint_editor(
                 st.caption('勾选显示；透明度 0 为原始着色，100 为全透明。隐藏不会删除数据。')
                 rows=[{'类别':label,'显示':True,'透明度':0} for key,label in DISPLAY_LAYERS.items()]
                 rows += [{'类别':'对象名称','显示':True,'透明度':0},{'类别':'上传的平面底图','显示':True,'透明度':0}]
+                layer_keys=list(DISPLAY_LAYERS)+['labels','background']
+                if stage_is_floor_partition:
+                    rows.insert(0,{'类别':'分户推演预览（粉色，非训练结果）','显示':False,'透明度':0})
+                    layer_keys.insert(0,'partition_preview')
                 view=st.data_editor(pd.DataFrame(rows),hide_index=True,disabled=['类别'],
                     column_config={'显示':st.column_config.CheckboxColumn('显示'),'透明度':st.column_config.NumberColumn('透明度 %',min_value=0,max_value=100,step=5)},
-                    key=f'{config_id}_environment_display',use_container_width=True)
-                display={key:(bool(row['显示']),float(row['透明度'] or 0)) for key,row in zip(list(DISPLAY_LAYERS)+['labels','background'],view.to_dict('records'))}
+                    key=f'{config_id}_environment_display_v2_{stage_is_floor_partition}',use_container_width=True)
+                display={key:(bool(row['显示']),float(row['透明度'] or 0)) for key,row in zip(layer_keys,view.to_dict('records'))}
                 if stage_is_floor_partition:
                     for hidden_key in ('agent','seed','labels','background'):
                         display[hidden_key]=(False,100.0)
@@ -910,7 +922,7 @@ def _render_plan_constraint_editor(
             st.error(f"智能体数据未保存：{exc}")
             editor_valid=False
         if stage_is_floor_partition:
-            st.caption('当前处于楼层功能分区阶段：左侧画布会自动隐藏智能体初始区域和种子点，仅保留楼层边界、结构约束以及规则生成的走道/门位。')
+            st.caption('粉色图层是当前参数的自动推演，不是训练结果，也不是结构约束。默认关闭，可在「显示」中开启；黄色为推演户门。修改这些预览形状需调整参数或进行训练，不能当作结构拖动。')
 
     with canvas_column:
         if not editor_valid or not stage_valid:
@@ -928,8 +940,12 @@ def _render_plan_constraint_editor(
         editing_boundary = operation_mode == "调整建筑边界"
         display_layer='boundary' if editing_boundary else layer
         display_objects=scene(config,canvas_width,canvas_height,CONSTRAINT_STYLES,display_layer,object_id,display)
-        if stage_is_floor_partition:
-            display_objects += _partition_overlay_objects(config, canvas_width, canvas_height, show_labels=False)
+        if stage_is_floor_partition and display.get('partition_preview',(False,0))[0]:
+            try:
+                display_objects += partition_overlay(config,canvas_width,canvas_height,True,display['partition_preview'][1])
+                st.info('粉色：自动推演，非训练结果；黄色：推演户门。隐藏预览不会改变建筑输入。')
+            except ValueError as exc:
+                st.warning(f'推演预览暂不可用，仍可编辑建筑输入：{exc}')
         if operation_mode=='绘制约束':
             for obj in display_objects: obj.update(selectable=False,evented=False)
         canvas = st_canvas(
@@ -1001,8 +1017,8 @@ def _render_plan_constraint_editor(
             st.caption("下图与右侧“功能关系”表实时同步，便于在平面画布下方直接检查住宅内部的节点关系网络。")
             _render_relation_graph(config, graph_height=relation_graph_height)
         else:
-            st.markdown("#### 楼层分区规则覆盖")
-            st.caption("橙色区域为贴交通核开口一侧生成的最小门前走道：长度按户门宽与隐私门距收敛，一层一户时只保留核门前门厅，不再整圈包裹交通核；深红短线为规则求得的各户门。")
+            st.markdown("#### 分户推演图层说明")
+            st.caption("开启时，浅粉色为自动走道，深粉色为分户隔墙，黄色为户门。它们随当前参数重新推演，仅供参考；训练后的方案请到「布局预览」查看。")
     return editor_valid and stage_valid
 
 
@@ -1059,98 +1075,7 @@ def _is_floor_partition_stage(config: dict) -> bool:
     return str(config.get("Training", {}).get("training_stage", "room_training")).strip() == "floor_partition"
 
 
-def _partition_overlay_objects(config: dict, width: int, height: int, show_labels: bool = True) -> list[dict]:
-    """为楼层分区阶段生成规则走道与规则门位覆盖图层。"""
-    if not _is_floor_partition_stage(config):
-        return []
-    floor = config.get("FloorPartition", {})
-    if not floor.get("enabled", False):
-        return []
-    program_type = str(floor.get("program_type", "residential")).strip()
-    if program_type != "residential":
-        return []
-    try:
-        problem, result = run_residential_floor_partition(config)
-        physical=wall_geometry(problem,result.corridor,result.unit_polygons,result.doors)
-    except Exception:
-        return []
-
-    boundary = config["ExistingBuilding"]["boundary"]
-    scale, ox, oy = viewport(boundary, width, height)
-    objects = []
-
-    def to_points(geometry):
-        polygons = [geometry] if geometry.geom_type == "Polygon" else [part for part in getattr(geometry, "geoms", []) if part.geom_type == "Polygon"]
-        for polygon in polygons:
-            coords = list(polygon.exterior.coords)
-            if len(coords) < 4:
-                continue
-            points = [dict(x=ox + float(x) * scale, y=oy - float(y) * scale) for x, y in coords[:-1]]
-            if len(points) < 3:
-                continue
-            yield points
-
-    for points in to_points(physical.corridor):
-        objects.append(
-            dict(
-                type="polygon",
-                points=points,
-                left=min(point["x"] for point in points),
-                top=min(point["y"] for point in points),
-                fill="rgba(0,157,245,0.55)",
-                stroke="#0571ad",
-                strokeWidth=2,
-                selectable=False,
-                evented=False,
-            )
-        )
-
-    # Draw the actual solid wall with hole-aware even-odd paths.
-    wall_parts=[physical.solid] if physical.solid.geom_type=='Polygon' else list(getattr(physical.solid,'geoms',[]))
-    for polygon in wall_parts:
-        if polygon.geom_type!='Polygon' or polygon.is_empty: continue
-        path=[]
-        for ring in [polygon.exterior,*polygon.interiors]:
-            for i,(x,y) in enumerate(list(ring.coords)[:-1]):
-                path.append(['M' if i==0 else 'L',ox+float(x)*scale,oy-float(y)*scale])
-            path.append(['Z'])
-        objects.append(dict(type='path',path=path,fill='#374151',fillRule='evenodd',
-            strokeWidth=0,selectable=False,evented=False))
-    for door in result.doors:
-        door_points = [
-            dict(x=ox + float(x) * scale, y=oy - float(y) * scale)
-            for x, y in door.points
-        ]
-        objects.append(
-            dict(
-                type="polyline",
-                points=door_points,
-                left=min(point["x"] for point in door_points),
-                top=min(point["y"] for point in door_points),
-                fill="",
-                stroke="#79ba20",
-                strokeWidth=4,
-                selectable=False,
-                evented=False,
-            )
-        )
-        if show_labels:
-            objects.append(
-                dict(
-                    type="text",
-                    text=door.unit_id,
-                    left=ox + float(door.center[0]) * scale + 6,
-                    top=oy - float(door.center[1]) * scale - 16,
-                    fontSize=11,
-                    fill="#7f0000",
-                    selectable=False,
-                    evented=False,
-                )
-            )
-    return objects
-
-
-def _render_floor_partition_section(config: dict, config_id: str) -> bool:
+def _render_floor_partition_section(config: dict, config_id: str, preview: bool = True) -> bool:
     """渲染楼层分区中间阶段配置，并做一次轻量校验。"""
     training = _ensure_training_stage_defaults(config)
     floor = _ensure_floor_partition_defaults(config)
@@ -1185,7 +1110,7 @@ def _render_floor_partition_section(config: dict, config_id: str) -> bool:
                 "分区网格（m）",
                 min_value=0.1,
                 value=float(floor.get("grid_size", 0.5)),
-                step=0.1,
+                step=0.05,
                 key=f"{config_id}_floor_partition_grid",
             )
         )
@@ -1217,10 +1142,11 @@ def _render_floor_partition_section(config: dict, config_id: str) -> bool:
         residential["min_door_spacing"] = float(
             st.number_input(
                 "最小门间距（m）",
-                min_value=0.9,
+                min_value=0.1,
                 value=float(residential.get("min_door_spacing", 2.4)),
                 step=0.1,
                 key=f"{config_id}_floor_partition_door_spacing",
+                help="不同户门洞口线段之间的最短直线净距，也适用于转角两侧；过大会迫使门厅加深。这是设计参数，并非规范值。",
             )
         )
     with cols[2]:
@@ -1228,7 +1154,7 @@ def _render_floor_partition_section(config: dict, config_id: str) -> bool:
             '分户隔墙总厚度（m）',min_value=0.,max_value=1.,
             value=float(residential.get('wall_thickness',.2)),step=.05,
             key=f'{config_id}_floor_partition_wall_thickness',
-            help='分界线为墙中线，两侧各扣除一半厚度；面积和门前净空按完成墙面计算。'))
+            help='分界线为墙中线，两侧各扣除一半厚度。贴齐结构侧面的是完成墙面，不是中线；户内训练使用扣墙后的净边界。'))
         residential["door_width"] = float(
             st.number_input(
                 "门宽（m）",
@@ -1259,23 +1185,26 @@ def _render_floor_partition_section(config: dict, config_id: str) -> bool:
         value=str(residential.get("export_config_prefix", "unit")),
         key=f"{config_id}_floor_partition_prefix",
     ).strip() or "unit"
+    if any(c in residential['export_config_prefix'] for c in '/\\:'):
+        st.error('导出配置前缀不能包含路径分隔符或冒号。')
+        return False
     residential["target_area_mode"] = "equal" if equal_area_mode else "custom"
     usable_summary = _floor_usable_area_summary(config)
     if usable_summary is not None:
         boundary_area, fixed_area, usable_area = usable_summary
         st.info(
             f"验算：总轮廓面积 {boundary_area:.2f} ㎡ − 结构约束面积 {fixed_area:.2f} ㎡"
-            f"（交通核、柱、墙等，与分区求解口径一致）= 总可用面积 {usable_area:.2f} ㎡。"
+            f"（交通核、柱、原有固定墙等）= 待分配面积 {usable_area:.2f} ㎡；生成的隔墙另行扣除。"
         )
     if equal_area_mode:
         if usable_summary is not None:
             st.caption(
-                f"已勾选等面积：逐户面积输入被禁用，系统在扣除结构与走道后把可分配面积平均分给 "
+                f"已勾选等面积：逐户面积输入被禁用，系统在扣除结构、走道与隔墙后把净面积平均分给 "
                 f"{residential['unit_count']} 户，约 {usable_area / max(int(residential['unit_count']), 1):.2f} ㎡/户"
-                f"（走道占用会在求解时再扣除）。"
+                f"（此处估算尚未扣走道和隔墙，最终以求解净面积为准）。"
             )
         else:
-            st.caption("已勾选等面积：逐户面积输入被禁用，系统在扣除结构与走道后把可分配面积平均分给各户。")
+            st.caption("已勾选等面积：逐户面积输入被禁用，系统在扣除结构、走道与隔墙后把净面积平均分给各户。")
     else:
         prefix = str(residential.get("export_config_prefix", "unit"))
         base_areas = [float(value) for value in (residential.get("target_areas") or [])[: int(residential["unit_count"])]]
@@ -1311,7 +1240,7 @@ def _render_floor_partition_section(config: dict, config_id: str) -> bool:
             if abs(gap) <= 0.05:
                 st.success(
                     f"验算通过：逐户面积合计 {total_requested:.2f} ㎡，与总可用面积 {usable_area:.2f} ㎡ 一致"
-                    f"（实际分配会再扣除走道后按比例微调）。"
+                    f"（实际分配会再扣除走道与隔墙后按比例调整）。"
                 )
             elif gap > 0:
                 st.warning(
@@ -1324,16 +1253,8 @@ def _render_floor_partition_section(config: dict, config_id: str) -> bool:
                     f"（差 {-gap:.2f} ㎡），分区时会按比例放大到实际可分配面积。"
                 )
 
-    with st.expander('分户质量约束（结构对齐与采光外墙）', expanded=False):
-        quality=floor.setdefault('quality', {})
-        quality['facade_per_area']=st.number_input('每平方米净面积所需有效外墙长度（m/㎡）',min_value=0.01,max_value=1.0,value=float(quality.get('facade_per_area',.12)),step=.01,key=f'{config_id}_facade_ratio')
-        quality['min_facade_length']=st.number_input('每户最小有效外墙长度（m）',min_value=.5,value=float(quality.get('min_facade_length',3.)),step=.5,key=f'{config_id}_facade_min')
-        quality['area_tolerance']=st.number_input('目标面积相对误差上限',min_value=.01,max_value=.9,value=float(quality.get('area_tolerance',.30)),step=.01,key=f'{config_id}_partition_area_tolerance')
-        quality['min_unit_width']=st.number_input('户型最小有效宽度（m）',min_value=.5,value=float(quality.get('min_unit_width',1.5)),step=.1,key=f'{config_id}_partition_min_width')
-        quality['min_structure_alignment']=st.number_input('分户共边贴合结构参考线的最低比例',min_value=.01,max_value=1.,value=float(quality.get('min_structure_alignment',1.)),step=.05,key=f'{config_id}_partition_alignment')
-        quality['daylight_depth']=st.number_input('采光机会检查深度（m）',min_value=.5,value=float(quality.get('daylight_depth',6.)),step=.5,key=f'{config_id}_partition_daylight_depth')
-        quality['min_daylight_coverage']=st.number_input('每户采光机会覆盖比例下限',min_value=.01,max_value=1.,value=float(quality.get('min_daylight_coverage',.25)),step=.05,key=f'{config_id}_partition_daylight_coverage')
-        st.caption('分界表示墙中线，净面积扣除墙厚。允许中线对中轴，或墙面贴齐结构边缘；评价鼓励统一对齐基准、减少来回折转，不强制全部对中。外墙长度与进深覆盖只是几何采光代理。每次修改均检查净宽和门前净空。')
+    if not render_partition_constraints(floor, config_id):
+        return False
     if not floor["enabled"]:
         return True
     if str(floor.get("program_type", "residential")) != "residential":
@@ -1341,22 +1262,34 @@ def _render_floor_partition_section(config: dict, config_id: str) -> bool:
         return False
 
     try:
+        if not preview:
+            from core.floor_partition.quality import settings
+            problem = build_floor_partition_problem(config)
+            settings(problem)
+            st.caption('这里只编辑楼层输入：外轮廓、结构约束和交通核开口。显示图层可开启粉色分户推演；它不是训练结果，也不属于结构约束。正式方案在「布局预览」中选择。')
+            return True
         problem, result = run_residential_floor_partition(config)
         physical=wall_geometry(problem,result.corridor,result.unit_polygons,result.doors)
+        report=validate_partition(problem,result)
         st.success(
             f"分区预校验通过：{len(problem.targets)} 户，开口朝向 {result.opening_side}，"
-            f"走道净面积 {physical.corridor.area:.2f} ㎡，户型净面积合计 {sum(p.area for p in physical.units.values()):.2f} ㎡。"
+            f"走道净面积 {physical.corridor.area:.2f} ㎡，户型净面积合计 {sum(p.area for p in physical.units.values()):.2f} ㎡，"
+            f"隔墙实体占地 {physical.solid.area:.2f} ㎡。"
         )
+        st.caption('图例：灰色为生成隔墙，深色为原有结构，黑色斜线为交通核，蓝色为公共走道。'
+                   '当前为有限搜索预览，不代表训练完成或全局最优。')
         st.dataframe(
             pd.DataFrame(
                 [
                     {
                         "户型": unit_id,
                         "目标面积": round(float(result.target_areas[unit_id]), 2),
-                        "实际面积": round(float(geometry.area), 2),
+                        "实际净面积": round(float(geometry.area), 2),
+                        "面积偏差(%)": round(report['units'][unit_id]['area_error_ratio']*100, 2),
+                        "采光机会覆盖(%)": round(report['units'][unit_id]['daylight_coverage_proxy']*100, 1),
                         "有效外墙(m)": round(geometry.boundary.intersection(problem.boundary.exterior.difference(problem.fixed_union)).length,2),
                         "所需外墙(m)": round(max(float(floor.get('quality',{}).get('min_facade_length',3.)),geometry.area*float(floor.get('quality',{}).get('facade_per_area',.12))),2),
-                        "门": [
+                        "门洞中线坐标": [
                             [round(float(value), 2) for value in next(door.points for door in result.doors if door.unit_id == unit_id)[0]],
                             [round(float(value), 2) for value in next(door.points for door in result.doors if door.unit_id == unit_id)[1]],
                         ],
@@ -1367,6 +1300,15 @@ def _render_floor_partition_section(config: dict, config_id: str) -> bool:
             hide_index=True,
             use_container_width=True,
         )
+        with st.expander('导出户内训练净边界', expanded=False):
+            st.caption('下载每户的配置：边界已扣除墙厚，门位在户内完成面。分户隔墙不会变成结构约束；'
+                       '导入后仍需设置房间需求。此下载对应当前预览，不会覆盖已有配置或模型。')
+            st.download_button('下载户内净边界配置（ZIP）', net_unit_archive(config,result),
+                file_name=f'{config_id}_net_units.zip', mime='application/zip',
+                key=f'{config_id}_partition_net_download')
+            st.download_button('下载分户验收报告（JSON）', json.dumps(report,ensure_ascii=False,indent=2),
+                file_name=f'{config_id}_partition_validation.json', mime='application/json',
+                key=f'{config_id}_partition_report_download')
         return True
     except Exception as exc:
         st.error(f"楼层分区预校验失败：{exc}")
@@ -1381,14 +1323,19 @@ def render_adaptive_reuse_config_page(
 ) -> None:
     consume_auto_repair_notice(config_id)
 
-    with st.expander("统一方法：原矩形基础 → 图种子加速优化 → 约束精确成图", expanded=False):
-        st.markdown(
-            "- **状态**：功能空间位置、尺度、目标面积差、形态、与固定构件/其他智能体的距离、功能关系、原空间复用率与整体改造率。\n"
-            "- **基础动作**：矩形直接优化使用移动、保持及四边伸缩，共 13 类动作；图种子加速将位置决策压缩为移动/保持 5 类动作，轮廓交给约束生长。\n"
-            "- **硬约束**：建筑边界、柱、承重墙、核心筒、交通核区域、保留交通空间和智能体重叠；非法动作被屏蔽并回退。\n"
-            "- **奖励**：面积、形态、邻近/分离、结构网格顺应、原空间利用、改造干预、非法动作与团队协调。\n"
-            "- **验收**：矩形直接优化按连续满足基础条件终止；加速训练按回合步数采样，每 250 轮及结束/停止时精确成图，检查实际轮廓和共边关系。"
-        )
+    stage = st.session_state.get(f'{config_id}_training_stage', config.get('Training', {}).get('training_stage', 'room_training'))
+    with st.expander('当前阶段的求解方法', expanded=False):
+        if stage == 'floor_partition':
+            st.caption('户型、户门和走道共同构成状态。先生成可行起点，再由空间图 PPO 选择交界与修改范围，'
+                       '通过局部搜索调整布局。每一步按墙厚后的净面积、通行、结构对齐和采光机会验收。')
+        else:
+            st.markdown(
+                "- **状态**：功能空间位置、尺度、目标面积差、形态、与固定构件/其他智能体的距离、功能关系、原空间复用率与整体改造率。\n"
+                "- **基础动作**：矩形直接优化使用移动、保持及四边伸缩，共 13 类动作；图种子加速将位置决策压缩为移动/保持 5 类动作，轮廓交给约束生长。\n"
+                "- **硬约束**：建筑边界、柱、承重墙、核心筒、交通核区域、保留交通空间和智能体重叠；非法动作被屏蔽并回退。\n"
+                "- **奖励**：面积、形态、邻近/分离、结构网格顺应、原空间利用、改造干预、非法动作与团队协调。\n"
+                "- **验收**：矩形直接优化按连续满足基础条件终止；加速训练按回合步数采样，每 250 轮及结束/停止时精确成图，检查实际轮廓和共边关系。"
+            )
 
     training = _ensure_training_stage_defaults(config)
     environment = config.setdefault("AdaptiveReuseEnvironment", {})
@@ -1404,7 +1351,10 @@ def render_adaptive_reuse_config_page(
         seed_settings['enabled'] = False
         st.info("当前选择的是楼层功能分区阶段，下面的房间级图种子加速与户内矩形优化参数会自动隐藏。")
     else:
-        seed_mode=st.checkbox('在原矩形基础上启用图种子加速优化',value=True if has_residual else bool(seed_settings.get('enabled',True)),key=f'{config_id}_residual_accel' if has_residual else f'{config_id}_seed_enabled',disabled=has_residual)
+        requires_polygons=bool(config.get('FloorWorkflow'))
+        seed_mode=st.checkbox('在原矩形基础上启用图种子加速优化',value=True if has_residual or requires_polygons else bool(seed_settings.get('enabled',True)),key=f'{config_id}_residual_accel' if has_residual else f'{config_id}_seed_enabled',disabled=has_residual or requires_polygons)
+        if requires_polygons:
+            st.caption('逐户合成使用精确多边形结果，因此保持图种子模式；完成后到「整体合成」选择本户结果。')
         seed_settings['enabled']=seed_mode
     if seed_mode and not stage_is_floor_partition:
         st.info('原始空间/初始矩形与功能关系 → 移动种子并快速估算共同优化目标 → 约束生长精炼轮廓。精确阶段按图关系联合调整共边，再将余量分配给客厅并验收连通及户门。每 250 轮、结束或停止时成图；实际邻接以共边验收为准。')
@@ -1431,6 +1381,9 @@ def render_adaptive_reuse_config_page(
             joint['enabled']=True
             joint['max_area']=float(st.number_input('一次修改最大面积（㎡）',min_value=1.,value=float(joint.get('max_area',100.)),key=f'{config_id}_partition_max_area'))
             joint['seconds_per_action']=float(st.number_input('每次局部搜索时间预算（秒）',min_value=.1,value=float(joint.get('seconds_per_action',1.5)),key=f'{config_id}_partition_seconds'))
+            joint['max_cells']=int(st.number_input('一次修改最多几何单元数',min_value=1,value=int(joint.get('max_cells',160)),key=f'{config_id}_partition_max_cells'))
+            joint['proposals']=int(st.number_input('每次局部修改最多候选数',min_value=1,value=int(joint.get('proposals',32)),key=f'{config_id}_partition_proposals'))
+            st.caption('局部范围同时受面积和几何单元数限制；候选数与时间预算限制每次搜索的计算量。环境中的门前净空、墙厚和采光设置也会用于训练验收。')
         else:
             training["lr"] = float(st.number_input("学习率", min_value=0.000001, value=float(training.get("lr", 0.0003)), format="%.6f", key=f"{config_id}_ar_lr"))
             training["seed"] = int(st.number_input("随机种子", value=int(training.get("seed", 42)), key=f"{config_id}_ar_seed"))
@@ -1454,15 +1407,20 @@ def render_adaptive_reuse_config_page(
     if include_environment:
         config_valid = _render_plan_constraint_editor(config, config_id)
 
-    st.markdown("### 奖励权重")
-    st.caption('分户奖励使用面积误差、转角数、最低采光外墙充足率和走道面积；下列户内权重在此阶段不生效。' if stage_is_floor_partition else "这里只保留论文方法对应的基础奖励项，不设“额外奖励”分组。")
-    if seed_mode and not stage_is_floor_partition:
-        st.caption('加速训练使用下列共同权重：复用/改造率按原矩形参照快速估算，邻接增加接近过程反馈，形态包含轮廓规整与碎片惩罚；最终质量以精确成图为准。')
-    weights = config.setdefault("RewardWeights", {})
-    reward_columns = st.columns(2)
-    for index, (key, label) in enumerate(REWARD_LABELS.items()):
-        with reward_columns[index % 2]:
-            weights[key] = float(st.slider(label, 0.0, 10.0, float(weights.get(key, 1.0)), 0.1, key=f"{config_id}_ar_reward_{key}",disabled=stage_is_floor_partition))
+    if stage_is_floor_partition:
+        st.markdown('### 分户评价')
+        st.caption('初始方案、局部搜索和训练共用评分：净面积偏差、走道占比、隔墙转折、短边、采光机会和结构对齐一致性。'
+                   '墙厚、门前净空、面积免罚范围等在「环境搭建」中设置并保存。')
+    else:
+        st.markdown("### 奖励权重")
+        st.caption("这里只保留论文方法对应的基础奖励项，不设“额外奖励”分组。")
+        if seed_mode:
+            st.caption('加速训练使用下列共同权重：复用/改造率按原矩形参照快速估算，邻接增加接近过程反馈，形态包含轮廓规整与碎片惩罚；最终质量以精确成图为准。')
+        weights = config.setdefault("RewardWeights", {})
+        reward_columns = st.columns(2)
+        for index, (key, label) in enumerate(REWARD_LABELS.items()):
+            with reward_columns[index % 2]:
+                weights[key] = float(st.slider(label, 0.0, 10.0, float(weights.get(key, 1.0)), 0.1, key=f"{config_id}_ar_reward_{key}"))
 
     if not include_environment:
         if st.button("保存参数配置", type="primary", use_container_width=True):
@@ -1500,7 +1458,10 @@ def render_adaptive_reuse_config_page(
         preview_requested = st.button("刷新环境预览", use_container_width=True)
 
     st.markdown("### 环境预览")
-    if stage_is_floor_partition and config_valid:
+    if stage_is_floor_partition:
+        if not config_valid:
+            st.info('请先处理分户参数或几何验收问题，再查看当前楼层预览。')
+            return
         st.markdown("#### 楼层分区中间结果预览")
         try:
             partition_problem, partition_result = run_residential_floor_partition(config)
@@ -1630,18 +1591,11 @@ def render_adaptive_reuse_environment_page(config: dict, config_id: str) -> None
     )
     if not preview_open:
         return
-    if stage_is_floor_partition and config_valid:
-        st.markdown("#### 楼层分区中间结果预览")
-        try:
-            partition_problem, partition_result = run_residential_floor_partition(config)
-            net=wall_geometry(partition_problem,partition_result.corridor,partition_result.unit_polygons,partition_result.doors)
-            metric_columns = st.columns(4)
-            metric_columns[0].metric("户数", len(partition_result.unit_polygons))
-            metric_columns[1].metric("走道净面积", f"{net.corridor.area:.1f} ㎡")
-            metric_columns[2].metric("户型净面积合计", f"{sum(p.area for p in net.units.values()):.1f} ㎡")
-            metric_columns[3].metric("面积缩放系数", f"{partition_result.area_scale:.3f}")
-        except Exception as exc:
-            st.error(f"楼层分区预览失败：{exc}")
+    if stage_is_floor_partition:
+        st.info('楼层输入编辑完成后，请保存环境；到「布局预览」查看未训练预览或已保存的第一阶段结果。')
+        return
+    if not config.get('TargetSpaces'):
+        st.info('请先在「智能体与关系」中添加本户房间，再预览或训练户内布局。')
         return
 
     from gui.seed_page import render_seed_preview, render_seed_results
@@ -1649,7 +1603,7 @@ def render_adaptive_reuse_environment_page(config: dict, config_id: str) -> None
     if seed_mode and config_valid:
         render_seed_preview(config)
 
-    render_seed_results(config_id)
+    render_seed_results(config_id,config)
     st.markdown("#### 原矩形基础布局")
     try:
         preview_config = yaml.safe_load(yaml.safe_dump(config, allow_unicode=True))

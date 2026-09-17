@@ -3,7 +3,7 @@
 Facade access is a daylight opportunity proxy, not a daylight simulation.
 """
 import math
-from shapely.geometry import LineString, Polygon
+from shapely.geometry import LineString, Polygon, Point
 from shapely.ops import unary_union
 from core.envs.structure_geometry import fixed_polygon
 from .walls import wall_geometry, structural_center_axes, structural_reference_axes, shifted_door
@@ -15,13 +15,16 @@ def settings(problem):
                   door_clearance_width=1.2, entrance_depth=.9, beam_width=24,
                   max_candidates=24, alignment_tolerance=1e-6,
                   daylight_depth=6., min_daylight_coverage=.25,
-                  min_structure_alignment=1., max_unusable_ratio=.20)
+                  min_structure_alignment=1., max_unusable_ratio=.20, area_balance_deadband=.01)
     values.update(problem.settings)
     for key,value in values.items():
+        if key=='area_balance_deadband' and value==0: continue
         if not isinstance(value,(float,int)) or not math.isfinite(value) or value <= 0:
             raise ValueError(f'FloorPartition.quality.{key} 必须是正有限数')
     if values['area_tolerance'] >= 1:
         raise ValueError('area_tolerance 必须小于1')
+    if values['area_balance_deadband']>values['area_tolerance']:
+        raise ValueError('area_balance_deadband must not exceed area_tolerance')
     for key in ('min_daylight_coverage', 'min_structure_alignment', 'max_unusable_ratio'):
         if values[key] > 1: raise ValueError(f'{key} must be <= 1')
     return values
@@ -52,9 +55,13 @@ def facade(problem):
     return problem.boundary.exterior.difference(problem.fixed_union)
 
 
-def corners(poly):
+def corners(poly, problem=None):
     points=list(poly.simplify(1e-7,preserve_topology=True).exterior.coords)[:-1]
-    return len(points)
+    if problem is None:
+        return len(points)
+    # Existing facade columns indent the free floor; those mandatory corners
+    # must not be treated as jagged NEW partition walls.
+    return max(4, sum(Point(p).distance(problem.fixed_union)>1e-6 for p in points))
 
 
 def frontage_requirement(area, q):
@@ -103,6 +110,7 @@ def validate_partition(problem, result):
     if result.opening.difference(problem.traffic_core.boundary.buffer(1e-7)).length>1e-6: errors.append('opening_not_on_core')
     if net_corridor.geom_type!='Polygon' or net_corridor.is_empty:
         errors.append('net_corridor_disconnected')
+    recess_area=0.
     centre=net_corridor.buffer(-problem.profile.corridor_width/2+1e-5,join_style=2)
     if centre.is_empty or centre.geom_type!='Polygon': errors.append('corridor_width')
     else:
@@ -111,7 +119,19 @@ def validate_partition(problem, result):
         # is not a passage. The connected clear-width centre-space and actual
         # door-front rectangles must still pass independently.
         residual=residual.difference(problem.fixed_union.buffer(problem.profile.wall_thickness/2+1e-7,join_style=2))
-        if residual.area>1e-5: errors.append('corridor_thin_appendage')
+        # Small three-sided recesses trapped by EXISTING structure are floor
+        # area, not passages. Do not enlarge the whole lobby to give such a
+        # recess a corridor-width turning circle. Door-front checks still apply.
+        pieces=[residual] if residual.geom_type=='Polygon' else list(getattr(residual,'geoms',[]))
+        for part in pieces:
+            if part.is_empty: continue
+            structural_contact=part.boundary.intersection(
+                problem.fixed_union.buffer(problem.profile.wall_thickness/2+2e-7,join_style=2)).length
+            if part.area <= (problem.profile.corridor_width/2)**2 and structural_contact >= .6*part.length:
+                recess_area += part.area
+        if result.opening.difference(centre.buffer(problem.profile.corridor_width/2+1e-5,join_style=2)).length>1e-6:
+            errors.append('core_opening_outside_clear_passage')
+        if residual.area-recess_area>1e-5: errors.append('corridor_thin_appendage')
     for uid,poly in units.items():
         if poly.geom_type!='Polygon' or not poly.is_valid or poly.is_empty:
             errors.append(f'{uid}:disconnected'); continue
@@ -123,7 +143,7 @@ def validate_partition(problem, result):
         length=net.boundary.intersection(exterior).length
         required=frontage_requirement(net.area,q)
         error=abs(net.area-result.target_areas[uid])/result.target_areas[uid]
-        count=corners(poly)
+        count=corners(poly,problem)
         coords=list(poly.simplify(1e-7,preserve_topology=True).exterior.coords)
         short_edges=sum(1 for a,b in zip(coords,coords[1:])
                         if LineString([a,b]).length<q['min_unit_width']-1e-6
@@ -201,10 +221,12 @@ def validate_partition(problem, result):
     if accounting_error>1e-6: errors.append('physical_area_accounting')
     return dict(valid=not errors,errors=sorted(set(errors)),units=metrics,
                 unassigned_area=missing,corridor_area=net_corridor.area,corridor_territory_area=corridor.area,
+                corridor_structural_recess_area=recess_area,
                 wall_thickness=problem.profile.wall_thickness,wall_reservation_area=physical.reservation.area,
                 solid_wall_area=physical.solid.area,door_threshold_area=physical.thresholds.area,
                 physical_area_accounting_error=accounting_error,
                 net_floor_area=net_area,
+                area_balance_deadband=q['area_balance_deadband'],
                 center_axis_alignment_ratio=center_aligned/shared_total if shared_total else 1.,
                 consistent_reference_alignment_ratio=reference_ratio,
                 dominant_structure_reference=reference_mode if reference_supported else 'none',

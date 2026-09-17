@@ -4,18 +4,25 @@ from __future__ import annotations
 from functools import lru_cache
 from copy import deepcopy
 import json
+from threading import RLock
 
 from .circulation import CirculationLayout, generate_residential_circulation
 from .contracts import FloorPartitionProblem, build_floor_partition_problem, target_areas_for_area
-from .doors import Door, enumerate_residential_door_candidates, solve_residential_doors
+from .contracts import Door
 from .export import export_unit_configs
-from .growth import PartitionResult, grow_residential_units
+from .contracts import PartitionResult
+
+_preview_lock = RLock()
 
 
 def run_residential_floor_partition(config: dict):
     """Budgeted preview; reuse identical geometry across GUI panels."""
     relevant={key:config.get(key,{}) for key in ('ExistingBuilding','FloorPartition','AdaptiveReuseEnvironment')}
-    return deepcopy(_preview_cached(json.dumps(relevant,sort_keys=True)))
+    # Streamlit can start a rerun while the previous script is still solving.
+    # lru_cache alone permits duplicate concurrent misses and stalls both runs.
+    with _preview_lock:
+        preview = _preview_cached(json.dumps(relevant,sort_keys=True))
+    return deepcopy(preview)
 
 
 @lru_cache(maxsize=8)
@@ -24,7 +31,7 @@ def _preview_cached(serialized):
     problem = build_floor_partition_problem(config)
     from .structured import candidate_partitions
     result, _ = candidate_partitions(problem)[0]
-    if problem.search_settings.get('enabled', True):
+    if problem.search_settings.get('enabled', True) and int(problem.search_settings.get('preview_steps', 4)) > 0:
         from .joint import search_joint
         result, _, _ = search_joint(problem, result, steps=int(problem.search_settings.get('preview_steps', 4)))
     return problem, result
@@ -36,11 +43,8 @@ __all__ = [
     "FloorPartitionProblem",
     "PartitionResult",
     "build_floor_partition_problem",
-    "enumerate_residential_door_candidates",
     "export_unit_configs",
     "generate_residential_circulation",
-    "grow_residential_units",
     "run_residential_floor_partition",
-    "solve_residential_doors",
     "target_areas_for_area",
 ]

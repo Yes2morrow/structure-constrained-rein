@@ -11,7 +11,7 @@ from shapely.ops import unary_union
 
 from core.floor_partition.contracts import build_floor_partition_problem, target_areas_for_area
 from core.floor_partition.circulation import CirculationLayout
-from core.floor_partition.growth import PartitionResult
+from core.floor_partition.contracts import PartitionResult
 from core.floor_partition.structured import unit_doors
 from core.floor_partition.quality import validate_partition
 from core.floor_partition.joint import JointPartitionEnv, Action, objective

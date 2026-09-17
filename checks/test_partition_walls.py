@@ -19,6 +19,19 @@ from core.floor_partition.lobby import lobby_candidates, lobby_reassignments
 
 
 class PartitionWallTests(unittest.TestCase):
+    def test_subnanometre_edge_noise_does_not_erase_wall_or_inner_door(self):
+        from core.floor_partition.contracts import Door
+        from core.floor_partition.walls import unit_face_door
+        _,p,r=case()
+        units={'unit_01':box(0,0,5+1e-14,8),'unit_02':box(7,0,12,8)}
+        door=Door('unit_01',((5.,2.),(5.,2.9)),'vertical',0.)
+        r=replace(r,corridor=box(5,0,7,8),unit_polygons=units,doors=(door,))
+        net=wall_geometry(p,r.corridor,units)
+        self.assertAlmostEqual(net.units['unit_01'].bounds[2],4.9)
+        face=LineString(unit_face_door(p,r,door))
+        self.assertAlmostEqual(face.bounds[0],4.9)
+        self.assertLess(face.difference(net.units['unit_01'].boundary.buffer(1e-7)).length,1e-7)
+
     def test_default_half_thickness_and_no_exterior_offset(self):
         _,p,r=case()
         self.assertEqual(p.profile.wall_thickness,.2)
@@ -92,6 +105,57 @@ class PartitionWallTests(unittest.TestCase):
         self.assertAlmostEqual(axes['high_inner'][0][0]+.1,6.3)
         self.assertAlmostEqual(axes['center'][0][0],6.)
         self.assertIn(5.8,structural_axes(p)[0])
+
+    def test_generated_walls_are_not_structural_references(self):
+        from core.floor_partition.walls import structural_center_axes
+        c,p,r=case()
+        before=p.fixed_union.wkb
+        wall_geometry(p,r.corridor,r.unit_polygons,r.doors)
+        self.assertEqual(before,p.fixed_union.wkb)
+        self.assertEqual(structural_center_axes(p),[[],[]])
+        c['ExistingBuilding']['fixed_objects'].append(
+            {'id':'bearing','type':'load_bearing_wall','rect':[1,1,1.4,4]})
+        pp=build_floor_partition_problem(c)
+        self.assertAlmostEqual(structural_center_axes(pp)[0][0],1.2)
+
+    def test_interior_agent_rejects_partition_wall_thickness(self):
+        from core.envs.adaptive_reuse_env import AdaptiveReuseEnv
+        c,p,r=case()
+        c['Training']={}
+        c['AdaptiveReuseEnvironment']={'grid_size':.25,'randomize_initial':False}
+        for thickness in (.2,.4):
+            c['FloorPartition']['residential']['wall_thickness']=thickness
+            pp=build_floor_partition_problem(c)
+            rr=update_net_targets(pp,r)
+            with tempfile.TemporaryDirectory() as td:
+                path=export_unit_configs(c,rr,td)[0]
+                data=yaml.safe_load(path.read_text(encoding='utf8'))
+                self.assertEqual(data['FloorPartitionResult']['partition_wall_role'],
+                                 'generated_non_load_bearing_partition')
+                self.assertTrue(all(o['id']=='core' for o in data['ExistingBuilding']['fixed_objects']))
+                data['TargetSpaces']=[dict(id='room',name='room',initial_rect=[1,1,3,3],
+                                          target_area=4,area_range=[2,8],aspect_range=[1,3])]
+                env=AdaptiveReuseEnv(data);env.reset(seed=1)
+                room=env.agent_spaces[0]
+                inside=room.copy(x1=4.,y1=1.,x2=6-thickness/2,y2=3.)
+                wall=room.copy(x1=4.,y1=1.,x2=6-thickness/4,y2=3.)
+                self.assertTrue(env._is_hard_valid(inside,0))
+                self.assertFalse(env._is_hard_valid(wall,0))
+                self.assertTrue(r.unit_polygons['unit_01'].covers(wall.polygon()))
+
+    def test_lobby_depths_include_intermediate_grid_steps(self):
+        _,p,r=case()
+        depths=sorted({8-g.bounds[1] for g in lobby_candidates(p,r.opening,'south')})
+        self.assertGreater(len(depths),3)
+        self.assertTrue(all(b-a<=p.profile.grid_size+1e-6 for a,b in zip(depths,depths[1:])))
+
+    def test_collinear_contact_nodes_do_not_block_door(self):
+        from core.floor_partition.structured import unit_doors
+        from core.floor_partition.circulation import CirculationLayout
+        _,p,r=case()
+        dense={u:g.segmentize(.2) for u,g in r.unit_polygons.items()}
+        doors=unit_doors(p,CirculationLayout(r.corridor,r.opening,r.opening_side),dense)
+        self.assertEqual(len(doors),len(dense))
 
     def test_mixed_alignment_scores_below_one_reference(self):
         c,_,_=case()

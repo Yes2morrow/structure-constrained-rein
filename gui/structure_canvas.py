@@ -8,6 +8,7 @@ import json
 import math
 import uuid
 from core.envs.structure_geometry import column, wall, normalize_structures, fixed_polygon
+from common.plan_styles import FABRIC_CORE_FILL, STRUCTURE_FILL
 
 
 def signature(items):
@@ -54,6 +55,8 @@ def canvas_objects(items, boundary, width, height, styles):
         common = dict(fill=styles.get(kind, styles['fixed'])[1], stroke=colors[item['id']],
                       strokeWidth=0, originX='left', originY='top',
                       lockSkewingX=True, lockSkewingY=True, lockScalingFlip=True)
+        if kind in ('traffic_core','core'): common['fill']=dict(FABRIC_CORE_FILL)
+        elif kind in ('column','shear_wall','load_bearing_wall'): common['fill']=STRUCTURE_FILL
         if item.get('derived') or ('polygon' in item and kind not in ('shear_wall','load_bearing_wall')):
             points = [dict(x=ox+x*scale,y=oy-y*scale) for x,y in fixed_polygon(item).exterior.coords]
             result.append(dict(common, type='polygon', points=points,

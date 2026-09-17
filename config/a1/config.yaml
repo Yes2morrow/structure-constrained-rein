@@ -1,4 +1,3 @@
-# A1 v2: 对称模数化设计环境；单位m，非实测。
 AdaptiveReuseEnvironment:
   adjacency_distance: 0.5
   area_tolerance: 0.12
@@ -31,7 +30,7 @@ FloorPartition:
     target_areas: []
     corridor_width: 1.5
     wall_thickness: 0.2
-    min_door_spacing: 2.4
+    min_door_spacing: 1.2
     door_width: 0.9
     opening_width: 1.5
     opening_side: south
@@ -73,292 +72,133 @@ FloorPartition:
     seed: 42
 ExistingBuilding:
   structure_schema_version: 2
-  boundary:
-  - - 0
-    - 0
-  - - 30
-    - 0
-  - - 30
-    - 10
-  - - 22
-    - 10
-  - - 22
-    - 12
-  - - 24
-    - 12
-  - - 24
-    - 15
-  - - 6
-    - 15
-  - - 6
-    - 12
-  - - 8
-    - 12
-  - - 8
-    - 10
-  - - 0
-    - 10
-  door_positions:
-  - - 14.25
-    - 10
-  - - 15.75
-    - 10
+  boundary: [[0, 0], [28, 0], [28, 10], [21, 10], [21, 12], [22, 12], [22, 15], [
+      6, 15], [6, 12], [7, 12], [7, 10], [0, 10]]
+  door_positions: [[13.25, 10.5], [14.75, 10.5]]
   fixed_objects:
+  - id: A1_column_1_1
+    type: column
+    center: [0.3, 0.4]
+    size: [0.6, 0.8]
+    rect: [0.0, 0.0, 0.6, 0.8]
+    parametric: true
+  - id: A1_column_1_2
+    type: column
+    center: [5.0, 0.4]
+    size: [0.6, 0.8]
+    rect: [4.7, 0.0, 5.3, 0.8]
+    parametric: true
+  - id: A1_column_1_3
+    type: column
+    center: [10.0, 0.4]
+    size: [0.6, 0.8]
+    rect: [9.7, 0.0, 10.3, 0.8]
+    parametric: true
+  - id: A1_column_1_4
+    type: column
+    center: [18.0, 0.4]
+    size: [0.6, 0.8]
+    rect: [17.7, 0.0, 18.3, 0.8]
+    parametric: true
+  - id: A1_column_1_5
+    type: column
+    center: [23.0, 0.4]
+    size: [0.6, 0.8]
+    rect: [22.7, 0.0, 23.3, 0.8]
+    parametric: true
+  - id: A1_column_1_6
+    type: column
+    center: [27.7, 0.4]
+    size: [0.6, 0.8]
+    rect: [27.4, 0.0, 28.0, 0.8]
+    parametric: true
+  - id: A1_column_2_1
+    type: column
+    center: [0.3, 5.0]
+    size: [0.6, 0.8]
+    rect: [0.0, 4.6, 0.6, 5.4]
+    parametric: true
+  - id: A1_column_2_2
+    type: column
+    center: [5.0, 5.0]
+    size: [0.6, 0.8]
+    rect: [4.7, 4.6, 5.3, 5.4]
+    parametric: true
+  - id: A1_column_2_3
+    type: column
+    center: [10.0, 5.0]
+    size: [0.6, 0.8]
+    rect: [9.7, 4.6, 10.3, 5.4]
+    parametric: true
+  - id: A1_column_2_4
+    type: column
+    center: [18.0, 5.0]
+    size: [0.6, 0.8]
+    rect: [17.7, 4.6, 18.3, 5.4]
+    parametric: true
+  - id: A1_column_2_5
+    type: column
+    center: [23.0, 5.0]
+    size: [0.6, 0.8]
+    rect: [22.7, 4.6, 23.3, 5.4]
+    parametric: true
+  - id: A1_column_2_6
+    type: column
+    center: [27.7, 5.0]
+    size: [0.6, 0.8]
+    rect: [27.4, 4.6, 28.0, 5.4]
+    parametric: true
+  - id: A1_column_3_1
+    type: column
+    center: [0.3, 9.6]
+    size: [0.6, 0.8]
+    rect: [0.0, 9.2, 0.6, 10.0]
+    parametric: true
+  - id: A1_column_3_2
+    type: column
+    center: [5.0, 9.6]
+    size: [0.6, 0.8]
+    rect: [4.7, 9.2, 5.3, 10.0]
+    parametric: true
+  - id: A1_column_3_3
+    type: column
+    center: [10.0, 9.6]
+    size: [0.6, 0.8]
+    rect: [9.7, 9.2, 10.3, 10.0]
+    parametric: true
+  - id: A1_column_3_4
+    type: column
+    center: [18.0, 9.6]
+    size: [0.6, 0.8]
+    rect: [17.7, 9.2, 18.3, 10.0]
+    parametric: true
+  - id: A1_column_3_5
+    type: column
+    center: [23.0, 9.6]
+    size: [0.6, 0.8]
+    rect: [22.7, 9.2, 23.3, 10.0]
+    parametric: true
+  - id: A1_column_3_6
+    type: column
+    center: [27.7, 9.6]
+    size: [0.6, 0.8]
+    rect: [27.4, 9.2, 28.0, 10.0]
+    parametric: true
   - id: A1_core_lifts_stairs
     type: traffic_core
-    rect:
-    - 6.0
-    - 12.0
-    - 24.0
-    - 15.0
+    rect: [6.0, 12.0, 22.0, 15.0]
     parametric: true
   - id: A1_core_left_services
     type: traffic_core
-    rect:
-    - 8.0
-    - 9.0
-    - 11.0
-    - 12.0
+    rect: [7.0, 10.0, 10.0, 12.0]
     parametric: true
   - id: A1_core_lift_lobby
     type: traffic_core
-    rect:
-    - 11.0
-    - 10.0
-    - 19.0
-    - 12.0
+    rect: [10.0, 10.5, 18.0, 12.0]
     parametric: true
   - id: A1_core_right_services
     type: traffic_core
-    rect:
-    - 19.0
-    - 9.0
-    - 22.0
-    - 12.0
-    parametric: true
-  - id: A1_column_x1_y1
-    type: column
-    center:
-    - 1.0
-    - 1.0
-    size:
-    - 0.6
-    - 0.8
-    rect:
-    - 0.7
-    - 0.6
-    - 1.3
-    - 1.4
-    parametric: true
-  - id: A1_column_x6_y1
-    type: column
-    center:
-    - 6.0
-    - 1.0
-    size:
-    - 0.6
-    - 0.8
-    rect:
-    - 5.7
-    - 0.6
-    - 6.3
-    - 1.4
-    parametric: true
-  - id: A1_column_x11_y1
-    type: column
-    center:
-    - 11.0
-    - 1.0
-    size:
-    - 0.6
-    - 0.8
-    rect:
-    - 10.7
-    - 0.6
-    - 11.3
-    - 1.4
-    parametric: true
-  - id: A1_column_x19_y1
-    type: column
-    center:
-    - 19.0
-    - 1.0
-    size:
-    - 0.6
-    - 0.8
-    rect:
-    - 18.7
-    - 0.6
-    - 19.3
-    - 1.4
-    parametric: true
-  - id: A1_column_x24_y1
-    type: column
-    center:
-    - 24.0
-    - 1.0
-    size:
-    - 0.6
-    - 0.8
-    rect:
-    - 23.7
-    - 0.6
-    - 24.3
-    - 1.4
-    parametric: true
-  - id: A1_column_x29_y1
-    type: column
-    center:
-    - 29.0
-    - 1.0
-    size:
-    - 0.6
-    - 0.8
-    rect:
-    - 28.7
-    - 0.6
-    - 29.3
-    - 1.4
-    parametric: true
-  - id: A1_column_x1_y5
-    type: column
-    center:
-    - 1.0
-    - 5.0
-    size:
-    - 0.6
-    - 0.8
-    rect:
-    - 0.7
-    - 4.6
-    - 1.3
-    - 5.4
-    parametric: true
-  - id: A1_column_x6_y5
-    type: column
-    center:
-    - 6.0
-    - 5.0
-    size:
-    - 0.6
-    - 0.8
-    rect:
-    - 5.7
-    - 4.6
-    - 6.3
-    - 5.4
-    parametric: true
-  - id: A1_column_x11_y5
-    type: column
-    center:
-    - 11.0
-    - 5.0
-    size:
-    - 0.6
-    - 0.8
-    rect:
-    - 10.7
-    - 4.6
-    - 11.3
-    - 5.4
-    parametric: true
-  - id: A1_column_x19_y5
-    type: column
-    center:
-    - 19.0
-    - 5.0
-    size:
-    - 0.6
-    - 0.8
-    rect:
-    - 18.7
-    - 4.6
-    - 19.3
-    - 5.4
-    parametric: true
-  - id: A1_column_x24_y5
-    type: column
-    center:
-    - 24.0
-    - 5.0
-    size:
-    - 0.6
-    - 0.8
-    rect:
-    - 23.7
-    - 4.6
-    - 24.3
-    - 5.4
-    parametric: true
-  - id: A1_column_x29_y5
-    type: column
-    center:
-    - 29.0
-    - 5.0
-    size:
-    - 0.6
-    - 0.8
-    rect:
-    - 28.7
-    - 4.6
-    - 29.3
-    - 5.4
-    parametric: true
-  - id: A1_column_x1_y9
-    type: column
-    center:
-    - 1.0
-    - 9.0
-    size:
-    - 0.6
-    - 0.8
-    rect:
-    - 0.7
-    - 8.6
-    - 1.3
-    - 9.4
-    parametric: true
-  - id: A1_column_x6_y9
-    type: column
-    center:
-    - 6.0
-    - 9.0
-    size:
-    - 0.6
-    - 0.8
-    rect:
-    - 5.7
-    - 8.6
-    - 6.3
-    - 9.4
-    parametric: true
-  - id: A1_column_x24_y9
-    type: column
-    center:
-    - 24.0
-    - 9.0
-    size:
-    - 0.6
-    - 0.8
-    rect:
-    - 23.7
-    - 8.6
-    - 24.3
-    - 9.4
-    parametric: true
-  - id: A1_column_x29_y9
-    type: column
-    center:
-    - 29.0
-    - 9.0
-    size:
-    - 0.6
-    - 0.8
-    rect:
-    - 28.7
-    - 8.6
-    - 29.3
-    - 9.4
+    rect: [18.0, 10.0, 21.0, 12.0]
     parametric: true
 FunctionalRelations: []
 Language: zh
@@ -399,166 +239,41 @@ SurveyReference:
   source_images:
   - ../../../北角上润中心尺寸(1).jpg
   - ../../../北角上润中心尺寸（2).jpg
-  image_size_px:
-  - 1000
-  - 750
+  image_size_px: [1000, 750]
   reference_dimension_mm: 1500
-  reference_corridor_x_px:
-  - 512
-  - 550
+  reference_corridor_x_px: [512, 550]
   reference_width_px: 38
   metres_per_pixel: 0.039473684210526314
-  origin_pixel:
-  - 170
-  - 559
+  origin_pixel: [170, 559]
   coordinates: x right, y up; image-aligned, not true north
-  boundary_pixels:
-  - - 170
-    - 559
-  - - 894
-    - 559
-  - - 894
-    - 308
-  - - 743
-    - 308
-  - - 743
-    - 288
-  - - 701
-    - 288
-  - - 701
-    - 250
-  - - 735
-    - 250
-  - - 735
-    - 180
-  - - 322
-    - 180
-  - - 322
-    - 250
-  - - 354
-    - 250
-  - - 354
-    - 315
-  - - 170
-    - 315
+  boundary_pixels: [[170, 559], [894, 559], [894, 308], [743, 308], [743, 288], [
+      701, 288], [701, 250], [735, 250], [735, 180], [322, 180], [322, 250], [354,
+      250], [354, 315], [170, 315]]
   traffic_core_rectangles_px:
-    A1_core_lifts_stairs:
-    - 322
-    - 180
-    - 735
-    - 250
-    A1_core_left_services:
-    - 354
-    - 250
-    - 432
-    - 315
-    A1_core_lift_lobby:
-    - 432
-    - 250
-    - 626
-    - 298
-    A1_core_right_services_upper:
-    - 626
-    - 250
-    - 701
-    - 288
-    A1_core_right_services_lower:
-    - 626
-    - 288
-    - 743
-    - 334
-  retained_corridor_rect_px:
-  - 512
-  - 298
-  - 550
-  - 476
-  column_rectangles_px:
-  - - 170
-    - 315
-    - 184
-    - 334
-  - - 174
-    - 431
-    - 188
-    - 451
-  - - 175
-    - 539
-    - 190
-    - 559
-  - - 300
-    - 315
-    - 316
-    - 339
-  - - 301
-    - 428
-    - 319
-    - 451
-  - - 303
-    - 535
-    - 319
-    - 559
-  - - 425
-    - 315
-    - 440
-    - 343
-  - - 425
-    - 428
-    - 441
-    - 451
-  - - 426
-    - 535
-    - 443
-    - 559
-  - - 624
-    - 425
-    - 642
-    - 450
-  - - 625
-    - 532
-    - 643
-    - 558
-  - - 748
-    - 425
-    - 765
-    - 449
-  - - 748
-    - 532
-    - 766
-    - 558
-  - - 879
-    - 308
-    - 894
-    - 325
-  - - 879
-    - 424
-    - 894
-    - 444
-  - - 879
-    - 535
-    - 894
-    - 556
+    A1_core_lifts_stairs: [322, 180, 735, 250]
+    A1_core_left_services: [354, 250, 432, 315]
+    A1_core_lift_lobby: [432, 250, 626, 298]
+    A1_core_right_services_upper: [626, 250, 701, 288]
+    A1_core_right_services_lower: [626, 288, 743, 334]
+  retained_corridor_rect_px: [512, 298, 550, 476]
+  column_rectangles_px: [[170, 315, 184, 334], [174, 431, 188, 451], [175, 539, 190,
+      559], [300, 315, 316, 339], [301, 428, 319, 451], [303, 535, 319, 559], [425,
+      315, 440, 343], [425, 428, 441, 451], [426, 535, 443, 559], [624, 425, 642,
+      450], [625, 532, 643, 558], [748, 425, 765, 449], [748, 532, 766, 558], [879,
+      308, 894, 325], [879, 424, 894, 444], [879, 535, 894, 556], [622, 305, 640,
+      336]]
   assumptions:
-  - 已按用户要求模数化、对称化，不再逐像素拟合；像素取点仅保留为来源记录。
-  - 主体30×10m，交通核关于x=15m对称；轮廓主坐标为整米。
-  - 柱统一0.6×0.8m；x轴网1/6/11/19/24/29m，y轴网1/5/9m。
-  - 交通核内的两个上排柱位合并在核固定区域内，不重复设置。
-  - 走道与户型、门位联合生成；走道净宽至少1.5m，隔墙默认总厚0.2m。
-  - 逐户有效外墙长度至少max(3m,0.12×净面积)，为几何采光机会指标。
+  - 依据1500mm标注复核：主体照片估算28.6×9.9m，取28×10m；交通核上部约16.3m，取16m。
+  - 保留关于x=14m的对称设计抽象；楼梯圆角、原图服务空间的不对称不逐像素拟合。
+  - 18根柱统一600×800mm；外围柱外侧面贴建筑轮廓，核旁两柱独立保留。
+  - 主体、核主尺寸取整米；核前退台0.5m，柱心按半截面偏移；全部尺寸可表示为整数毫米。
+  - 门间距1.2m是可调设计参数，非规范结论；走道净宽1.5m、墙厚0.2m及门前1.2×1.2m净空保持。
+  - 走道、户型与户门自动联合生成，采光采用几何代理评价。
 ModularDesign:
-  symmetry_axis_x: 15
-  column_size:
-  - 0.6
-  - 0.8
-  column_axes_x:
-  - 1
-  - 6
-  - 11
-  - 19
-  - 24
-  - 29
-  column_axes_y:
-  - 1
-  - 5
-  - 9
+  symmetry_axis_x: 14
+  column_size: [0.6, 0.8]
+  column_axes_x: [0.3, 5, 10, 18, 23, 27.7]
+  column_axes_y: [0.4, 5, 9.6]
   primary_dimension_module: 1
-  note: 走道、门宽、柱截面保留实用小数；主轮廓及柱中心为整数
+  detail_dimension_module: 0.1
+  note: 外围柱按外侧面贴边；内柱轴5/10/18/23m；竖向等跨4.6m，核心退台0.5m。

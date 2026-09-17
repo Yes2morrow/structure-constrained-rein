@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "structure-constrained-rein"
-version = "0.2.6"
+version = "0.3.0"
 description = "Structure-constrained reinforcement learning workspace for adaptive reuse layout generation."
 readme = "README.md"
 requires-python = ">=3.11"

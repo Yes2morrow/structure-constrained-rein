@@ -112,7 +112,9 @@ def render_sidebar_controls(config: dict, config_id: str) -> None:
         stage_label = _training_stage_label(config, config_id)
         render_training_status_indicator(status_text, training_pid)
         st.metric("运行状态", status_text)
-        st.caption(f"算法类型: {config.get('Training', {}).get('agent_name', 'mappo')}")
+        current_stage = st.session_state.get(f'{config_id}_training_stage', config.get('Training', {}).get('training_stage'))
+        algorithm = '空间图 PPO' if current_stage == 'floor_partition' else config.get('Training', {}).get('agent_name', 'mappo')
+        st.caption(f"算法类型: {algorithm}")
         if config.get("ProjectType") == "adaptive_reuse":
             # 一级分类：训练阶段（二级分类为右侧功能页面，内容随阶段联动）。
             current_stage = str(config.get("Training", {}).get("training_stage", "room_training")).strip()

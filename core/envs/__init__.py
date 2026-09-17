@@ -1,20 +1,29 @@
-from .env import HouseEnv
+"""Environment factories; heavy Gym environments are imported on demand."""
+from importlib import import_module
 from .room import *
 from .loads import load_yaml_file, copy_yaml_file
 from .building import Building
-from .residential_env import ResidentialLayoutEnv, make_residential_env
-from .adaptive_reuse_env import (
-    AdaptiveReuseEnv,
-    FunctionalSpace,
-    calculate_area_budget,
-    summarize_target_area_budget,
-    redistribute_target_max_areas,
-    make_adaptive_reuse_env,
-)
+
+_LAZY = {
+    'HouseEnv': '.env',
+    'ResidentialLayoutEnv': '.residential_env',
+    'make_residential_env': '.residential_env',
+    **{name: '.adaptive_reuse_env' for name in (
+        'AdaptiveReuseEnv', 'FunctionalSpace', 'calculate_area_budget',
+        'summarize_target_area_budget', 'redistribute_target_max_areas',
+        'make_adaptive_reuse_env')},
+}
+
+def __getattr__(name):
+    if name not in _LAZY: raise AttributeError(name)
+    value = getattr(import_module(_LAZY[name], __name__), name)
+    globals()[name] = value
+    return value
 
 
 def make_env(config_path:str):
     """ 通过配置文件创建环境 """
+    from .env import HouseEnv
     config = load_yaml_file(config_path)
     config.setdefault('EnvironmentAdvanced', {})
     config.setdefault('RewardAdvanced', {})

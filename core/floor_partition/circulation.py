@@ -49,24 +49,6 @@ def _choose_opening_side(problem: FloorPartitionProblem) -> str:
     return max(usable, key=clearances.get)
 
 
-def _opening_cut(problem: FloorPartitionProblem, side: str) -> Polygon:
-    width = problem.profile.corridor_width
-    opening_width = problem.profile.opening_width
-    min_x, min_y, max_x, max_y = problem.traffic_core.bounds
-    epsilon = max(problem.profile.grid_size * 0.5, 0.05)
-    if side == "north":
-        center = (min_x + max_x) / 2.0
-        return box(center - opening_width / 2.0, max_y - epsilon, center + opening_width / 2.0, max_y + width + epsilon)
-    if side == "south":
-        center = (min_x + max_x) / 2.0
-        return box(center - opening_width / 2.0, min_y - width - epsilon, center + opening_width / 2.0, min_y + epsilon)
-    if side == "east":
-        center = (min_y + max_y) / 2.0
-        return box(max_x - epsilon, center - opening_width / 2.0, max_x + width + epsilon, center + opening_width / 2.0)
-    center = (min_y + max_y) / 2.0
-    return box(min_x - width - epsilon, center - opening_width / 2.0, min_x + epsilon, center + opening_width / 2.0)
-
-
 def _required_length(problem: FloorPartitionProblem) -> float:
     """走道条带需要覆盖的核边长度：核开口宽度与全部户门面宽取较大值。
 
@@ -76,24 +58,6 @@ def _required_length(problem: FloorPartitionProblem) -> float:
     profile = problem.profile
     frontage = profile.door_width * profile.unit_count + profile.min_door_spacing * (profile.unit_count - 1)
     return max(profile.opening_width, frontage)
-
-
-def _side_band(problem: FloorPartitionProblem, side: str, length: float) -> Polygon:
-    """沿开口一侧生成贴核条带：深度为走道宽，长度按需收敛并居中于核门。"""
-    width = problem.profile.corridor_width
-    min_x, min_y, max_x, max_y = problem.traffic_core.bounds
-    low, high = (min_y, max_y) if side in ("east", "west") else (min_x, max_x)
-    length = min(length, high - low)
-    center = (low + high) / 2.0
-    start = min(max(center - length / 2.0, low), high - length)
-    end = start + length
-    if side == "west":
-        return box(min_x - width, start, min_x, end)
-    if side == "east":
-        return box(max_x, start, max_x + width, end)
-    if side == "south":
-        return box(start, min_y - width, end, min_y)
-    return box(start, max_y, end, max_y + width)
 
 
 def generate_residential_circulation(problem: FloorPartitionProblem) -> CirculationLayout:
@@ -116,7 +80,10 @@ def circulation_candidates(problem):
     width = math.ceil(width/problem.profile.grid_size-1e-8)*problem.profile.grid_size
     blocked = unary_union([fixed_polygon(i) for i in problem.fixed_objects
                            if i['type'] not in TRAFFIC_CORE_TYPES])
-    ring = core.buffer(width, join_style=2).difference(core).intersection(problem.boundary).difference(blocked)
+    attached = [fixed_polygon(i) for i in problem.fixed_objects
+                if i['type'] not in TRAFFIC_CORE_TYPES and fixed_polygon(i).distance(core)<1e-7]
+    envelope = unary_union([core,*attached])
+    ring = envelope.buffer(width, join_style=2).difference(envelope).intersection(problem.boundary).difference(blocked)
     bx,by,ex,ey = problem.boundary.bounds
     cx,cy = core.centroid.coords[0]
     masks = {'south':box(bx-1,by-1,ex+1,cy), 'north':box(bx-1,cy,ex+1,ey+1),
