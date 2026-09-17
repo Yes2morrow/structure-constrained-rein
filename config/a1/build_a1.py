@@ -37,7 +37,7 @@ def main():
         rl=dict(enabled=True,algorithm='graph_ppo',episodes=128,steps_per_episode=8,ppo_epochs=3,
                 learning_rate=.0003,entropy_coef=.02,seed=42))
     config['FloorPartition']['residential'].update(unit_count=4,target_area_mode='equal',target_areas=[],
-        corridor_width=1.5,door_width=.9,min_door_spacing=2.4,opening_width=1.5,opening_side='south')
+        corridor_width=1.5,wall_thickness=.2,door_width=.9,min_door_spacing=2.4,opening_width=1.5,opening_side='south')
     config['Training']['training_stage']='floor_partition'
     config['Training']['episodes']=128
     config['SurveyReference'].update(status='modular_design_abstraction_not_survey',
@@ -45,7 +45,7 @@ def main():
                      '主体30×10m，交通核关于x=15m对称；轮廓主坐标为整米。',
                      '柱统一0.6×0.8m；x轴网1/6/11/19/24/29m，y轴网1/5/9m。',
                      '交通核内的两个上排柱位合并在核固定区域内，不重复设置。',
-                     '不设置固定走道；沿实际交通核轮廓自动生成1.5m宽走道。',
+                     '走道与户型、门位联合生成；走道净宽至少1.5m，隔墙默认总厚0.2m。',
                      '逐户有效外墙长度至少max(3m,0.12×净面积)，为几何采光机会指标。'])
     config['ModularDesign']=dict(symmetry_axis_x=15,column_size=[.6,.8],
         column_axes_x=[1,6,11,19,24,29],column_axes_y=[1,5,9],primary_dimension_module=1,
@@ -72,3 +72,4 @@ def main():
     print(json.dumps(report,ensure_ascii=False,indent=2))
 
 if __name__=='__main__': main()
+

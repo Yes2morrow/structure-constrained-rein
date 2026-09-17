@@ -11,6 +11,7 @@ from shapely.geometry import Polygon
 from core.envs.structure_geometry import fixed_polygon
 
 from .growth import PartitionResult
+from .walls import wall_geometry, unit_face_door
 
 
 def _round_coords(coords) -> list[list[float]]:
@@ -93,7 +94,9 @@ def export_unit_configs(config: dict[str, Any], result: PartitionResult, output_
     """按户型边界导出下游训练配置。"""
     from .contracts import build_floor_partition_problem
     from .quality import validate_partition
-    report=validate_partition(build_floor_partition_problem(config),result)
+    problem=build_floor_partition_problem(config)
+    report=validate_partition(problem,result)
+    physical=wall_geometry(problem,result.corridor,result.unit_polygons,result.doors)
     if not report['valid']:
         raise ValueError('分户结果未通过独立验收，拒绝导出: '+', '.join(report['errors']))
     base_dir = Path(output_dir)
@@ -103,7 +106,8 @@ def export_unit_configs(config: dict[str, Any], result: PartitionResult, output_
     doors = {door.unit_id: door for door in result.doors}
     floor_outline = _polygon_boundary(config["ExistingBuilding"]["boundary"] if isinstance(config["ExistingBuilding"]["boundary"], Polygon) else Polygon(config["ExistingBuilding"]["boundary"]))
     written = []
-    for unit_id, unit_polygon in result.unit_polygons.items():
+    for unit_id, unit_polygon in physical.units.items():
+        face_door=_round_coords(unit_face_door(problem,result,doors[unit_id]))
         unit_dir = base_dir / unit_id
         unit_dir.mkdir(parents=True, exist_ok=True)
         exported = deepcopy(config)
@@ -114,11 +118,16 @@ def export_unit_configs(config: dict[str, Any], result: PartitionResult, output_
             {
                 "unit_id": unit_id,
                 "unit_boundary": _polygon_boundary(unit_polygon),
-                "door_positions": _door_positions(doors[unit_id]),
+                "door_positions": face_door,
+                "door_centerline_positions": _door_positions(doors[unit_id]),
+                "wall_thickness": problem.profile.wall_thickness,
+                "partition_boundary_reference": "wall_centerline",
+                "unit_territory_boundary": _polygon_boundary(result.unit_polygons[unit_id]),
                 "door_edge": doors[unit_id].edge,
                 "target_area": round(float(result.target_areas[unit_id]), 6),
                 "requested_area": round(float(result.requested_areas[unit_id]), 6),
-                "corridor": _polygon_boundary(result.corridor),
+                "corridor": _polygon_boundary(physical.corridor),
+                "corridor_territory": _polygon_boundary(result.corridor),
                 "opening_side": result.opening_side,
                 "floor_outline": floor_outline,
             }
@@ -139,7 +148,7 @@ def export_unit_configs(config: dict[str, Any], result: PartitionResult, output_
                         id=f'{unit_id}_void_{index}_{j}',type='fixed',polygon=_round_coords(part.exterior.coords),
                         rect=list(part.bounds),parametric=False))
         exported["ExistingBuilding"]["original_spaces"] = _intersect_original_spaces(original_spaces, unit_polygon)
-        exported["ExistingBuilding"]["door_positions"] = _door_positions(doors[unit_id])
+        exported["ExistingBuilding"]["door_positions"] = face_door
         exported["Training"]["ckpt_path"] = ""
         exported['Training']['training_stage']='room_training'
         exported.setdefault('FloorPartition',{})['enabled']=False
@@ -161,9 +170,14 @@ def export_unit_configs(config: dict[str, Any], result: PartitionResult, output_
                 "target_area": round(float(result.target_areas[unit_id]), 6),
                 "requested_area": round(float(result.requested_areas[unit_id]), 6),
             }
-            for unit_id, unit_polygon in result.unit_polygons.items()
+            for unit_id, unit_polygon in physical.units.items()
         ],
         "area_scale": round(float(result.area_scale), 6),
+        "area_reference": "net_floor_excluding_partition_walls_and_door_thresholds",
+        "wall_thickness": problem.profile.wall_thickness,
+        "corridor_area": physical.corridor.area,
+        "solid_wall_area": physical.solid.area,
+        "door_threshold_area": physical.thresholds.area,
     }
     (base_dir / "summary.yaml").write_text(yaml.safe_dump(summary, allow_unicode=True, sort_keys=False), encoding="utf-8")
     return written

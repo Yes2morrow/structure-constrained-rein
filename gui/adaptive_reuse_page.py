@@ -27,6 +27,7 @@ from common.config_manager import get_config_dir
 from core.envs import AdaptiveReuseEnv, summarize_target_area_budget, redistribute_target_max_areas
 from core.envs.structure_geometry import fixed_polygon, normalize_structures
 from core.floor_partition import build_floor_partition_problem, run_residential_floor_partition
+from core.floor_partition.walls import wall_geometry
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 from gui.config_store import load_config, save_config
@@ -1040,6 +1041,7 @@ def _ensure_floor_partition_defaults(config: dict) -> dict:
     residential.setdefault("corridor_width", 1.5)
     residential.setdefault("min_door_spacing", 2.4)
     residential.setdefault("door_width", 0.9)
+    residential.setdefault("wall_thickness", 0.2)
     residential.setdefault("opening_width", 1.5)
     residential.setdefault("opening_side", "auto")
     residential.setdefault("export_config_prefix", "unit")
@@ -1068,7 +1070,8 @@ def _partition_overlay_objects(config: dict, width: int, height: int, show_label
     if program_type != "residential":
         return []
     try:
-        _, result = run_residential_floor_partition(config)
+        problem, result = run_residential_floor_partition(config)
+        physical=wall_geometry(problem,result.corridor,result.unit_polygons,result.doors)
     except Exception:
         return []
 
@@ -1087,21 +1090,32 @@ def _partition_overlay_objects(config: dict, width: int, height: int, show_label
                 continue
             yield points
 
-    for points in to_points(result.corridor):
+    for points in to_points(physical.corridor):
         objects.append(
             dict(
                 type="polygon",
                 points=points,
                 left=min(point["x"] for point in points),
                 top=min(point["y"] for point in points),
-                fill="rgba(249,168,37,0.35)",
-                stroke="#c17900",
+                fill="rgba(0,157,245,0.55)",
+                stroke="#0571ad",
                 strokeWidth=2,
                 selectable=False,
                 evented=False,
             )
         )
 
+    # Draw the actual solid wall with hole-aware even-odd paths.
+    wall_parts=[physical.solid] if physical.solid.geom_type=='Polygon' else list(getattr(physical.solid,'geoms',[]))
+    for polygon in wall_parts:
+        if polygon.geom_type!='Polygon' or polygon.is_empty: continue
+        path=[]
+        for ring in [polygon.exterior,*polygon.interiors]:
+            for i,(x,y) in enumerate(list(ring.coords)[:-1]):
+                path.append(['M' if i==0 else 'L',ox+float(x)*scale,oy-float(y)*scale])
+            path.append(['Z'])
+        objects.append(dict(type='path',path=path,fill='#374151',fillRule='evenodd',
+            strokeWidth=0,selectable=False,evented=False))
     for door in result.doors:
         door_points = [
             dict(x=ox + float(x) * scale, y=oy - float(y) * scale)
@@ -1114,7 +1128,7 @@ def _partition_overlay_objects(config: dict, width: int, height: int, show_label
                 left=min(point["x"] for point in door_points),
                 top=min(point["y"] for point in door_points),
                 fill="",
-                stroke="#7f0000",
+                stroke="#79ba20",
                 strokeWidth=4,
                 selectable=False,
                 evented=False,
@@ -1193,7 +1207,7 @@ def _render_floor_partition_section(config: dict, config_id: str) -> bool:
         )
         residential["corridor_width"] = float(
             st.number_input(
-                "走道宽度（m）",
+                "走道净宽（m）",
                 min_value=0.8,
                 value=float(residential.get("corridor_width", 1.5)),
                 step=0.1,
@@ -1210,6 +1224,11 @@ def _render_floor_partition_section(config: dict, config_id: str) -> bool:
             )
         )
     with cols[2]:
+        residential['wall_thickness']=float(st.number_input(
+            '分户隔墙总厚度（m）',min_value=0.,max_value=1.,
+            value=float(residential.get('wall_thickness',.2)),step=.05,
+            key=f'{config_id}_floor_partition_wall_thickness',
+            help='分界线为墙中线，两侧各扣除一半厚度；面积和门前净空按完成墙面计算。'))
         residential["door_width"] = float(
             st.number_input(
                 "门宽（m）",
@@ -1314,7 +1333,7 @@ def _render_floor_partition_section(config: dict, config_id: str) -> bool:
         quality['min_structure_alignment']=st.number_input('分户共边贴合结构参考线的最低比例',min_value=.01,max_value=1.,value=float(quality.get('min_structure_alignment',1.)),step=.05,key=f'{config_id}_partition_alignment')
         quality['daylight_depth']=st.number_input('采光机会检查深度（m）',min_value=.5,value=float(quality.get('daylight_depth',6.)),step=.5,key=f'{config_id}_partition_daylight_depth')
         quality['min_daylight_coverage']=st.number_input('每户采光机会覆盖比例下限',min_value=.01,max_value=1.,value=float(quality.get('min_daylight_coverage',.25)),step=.05,key=f'{config_id}_partition_daylight_coverage')
-        st.caption('外墙长度与进深覆盖是几何采光代理，未计算窗墙比、遮挡、朝向或日照。分界优先采用结构参考线，也可沿补充模数线调整；每次修改均重新检查每户质量。')
+        st.caption('分界表示墙中线，净面积扣除墙厚。允许中线对中轴，或墙面贴齐结构边缘；评价鼓励统一对齐基准、减少来回折转，不强制全部对中。外墙长度与进深覆盖只是几何采光代理。每次修改均检查净宽和门前净空。')
     if not floor["enabled"]:
         return True
     if str(floor.get("program_type", "residential")) != "residential":
@@ -1323,9 +1342,10 @@ def _render_floor_partition_section(config: dict, config_id: str) -> bool:
 
     try:
         problem, result = run_residential_floor_partition(config)
+        physical=wall_geometry(problem,result.corridor,result.unit_polygons,result.doors)
         st.success(
             f"分区预校验通过：{len(problem.targets)} 户，开口朝向 {result.opening_side}，"
-            f"走道面积 {result.corridor.area:.2f} ㎡，剩余可分配面积 {result.allocatable_space.area:.2f} ㎡。"
+            f"走道净面积 {physical.corridor.area:.2f} ㎡，户型净面积合计 {sum(p.area for p in physical.units.values()):.2f} ㎡。"
         )
         st.dataframe(
             pd.DataFrame(
@@ -1341,7 +1361,7 @@ def _render_floor_partition_section(config: dict, config_id: str) -> bool:
                             [round(float(value), 2) for value in next(door.points for door in result.doors if door.unit_id == unit_id)[1]],
                         ],
                     }
-                    for unit_id, geometry in sorted(result.unit_polygons.items())
+                    for unit_id, geometry in sorted(physical.units.items())
                 ]
             ),
             hide_index=True,
@@ -1483,11 +1503,12 @@ def render_adaptive_reuse_config_page(
     if stage_is_floor_partition and config_valid:
         st.markdown("#### 楼层分区中间结果预览")
         try:
-            _, partition_result = run_residential_floor_partition(config)
+            partition_problem, partition_result = run_residential_floor_partition(config)
+            net=wall_geometry(partition_problem,partition_result.corridor,partition_result.unit_polygons,partition_result.doors)
             metric_columns = st.columns(4)
             metric_columns[0].metric("户数", len(partition_result.unit_polygons))
-            metric_columns[1].metric("走道面积", f"{partition_result.corridor.area:.1f} ㎡")
-            metric_columns[2].metric("剩余可分配面积", f"{partition_result.allocatable_space.area:.1f} ㎡")
+            metric_columns[1].metric("走道净面积", f"{net.corridor.area:.1f} ㎡")
+            metric_columns[2].metric("户型净面积合计", f"{sum(p.area for p in net.units.values()):.1f} ㎡")
             metric_columns[3].metric("面积缩放系数", f"{partition_result.area_scale:.3f}")
         except Exception as exc:
             st.error(f"楼层分区预览失败：{exc}")
@@ -1612,11 +1633,12 @@ def render_adaptive_reuse_environment_page(config: dict, config_id: str) -> None
     if stage_is_floor_partition and config_valid:
         st.markdown("#### 楼层分区中间结果预览")
         try:
-            _, partition_result = run_residential_floor_partition(config)
+            partition_problem, partition_result = run_residential_floor_partition(config)
+            net=wall_geometry(partition_problem,partition_result.corridor,partition_result.unit_polygons,partition_result.doors)
             metric_columns = st.columns(4)
             metric_columns[0].metric("户数", len(partition_result.unit_polygons))
-            metric_columns[1].metric("走道面积", f"{partition_result.corridor.area:.1f} ㎡")
-            metric_columns[2].metric("剩余可分配面积", f"{partition_result.allocatable_space.area:.1f} ㎡")
+            metric_columns[1].metric("走道净面积", f"{net.corridor.area:.1f} ㎡")
+            metric_columns[2].metric("户型净面积合计", f"{sum(p.area for p in net.units.values()):.1f} ㎡")
             metric_columns[3].metric("面积缩放系数", f"{partition_result.area_scale:.3f}")
         except Exception as exc:
             st.error(f"楼层分区预览失败：{exc}")

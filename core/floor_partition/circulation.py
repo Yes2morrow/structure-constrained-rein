@@ -111,7 +111,9 @@ def circulation_candidates(problem):
     core = problem.traffic_core
     if core.geom_type != 'Polygon':
         raise ValueError('当前自动走道要求交通核连通；分离交通核需先指定连接方案')
-    width = problem.profile.corridor_width
+    # Generate centre-line territories wide enough for two half-wall deductions.
+    width = problem.profile.corridor_width + problem.profile.wall_thickness
+    width = math.ceil(width/problem.profile.grid_size-1e-8)*problem.profile.grid_size
     blocked = unary_union([fixed_polygon(i) for i in problem.fixed_objects
                            if i['type'] not in TRAFFIC_CORE_TYPES])
     ring = core.buffer(width, join_style=2).difference(core).intersection(problem.boundary).difference(blocked)

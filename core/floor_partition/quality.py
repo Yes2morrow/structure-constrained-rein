@@ -6,6 +6,7 @@ import math
 from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 from core.envs.structure_geometry import fixed_polygon
+from .walls import wall_geometry, structural_center_axes, structural_reference_axes, shifted_door
 
 
 def settings(problem):
@@ -26,8 +27,11 @@ def settings(problem):
     return values
 
 
-def structural_axes(problem):
+def structural_axes(problem, include_wall_faces=True):
     axes=[set(),set()]
+    references=structural_reference_axes(problem)
+    for refs in (references.values() if include_wall_faces else [references['center']]):
+        for d in (0,1): axes[d].update(round(v,8) for v in refs[d])
     for item in problem.fixed_objects:
         p=fixed_polygon(item)
         for x,y in p.exterior.coords:
@@ -67,9 +71,12 @@ def rectangle_at_door(points, depth, width, sign):
 
 def door_clearance(door, unit, corridor, q):
     for sign in (-1,1):
-        front=rectangle_at_door(door.points,q['door_clearance_depth'],
+        half=q.get('wall_thickness',0.)/2
+        front_points=tuple(shifted_door(door.points,half,sign).coords)
+        inside_points=tuple(shifted_door(door.points,half,-sign).coords)
+        front=rectangle_at_door(front_points,q['door_clearance_depth'],
                                 max(q['door_clearance_width'],LineString(door.points).length),sign)
-        inside=rectangle_at_door(door.points,q['entrance_depth'],LineString(door.points).length,-sign)
+        inside=rectangle_at_door(inside_points,q['entrance_depth'],LineString(door.points).length,-sign)
         if corridor.buffer(1e-7).covers(front) and unit.buffer(1e-7).covers(inside):
             return True
     return False
@@ -81,6 +88,9 @@ def validate_partition(problem, result):
     expected={t.unit_id for t in problem.targets}
     if set(units)!=expected or set(doors)!=expected: errors.append('unit_or_door_ids')
     corridor=result.corridor
+    physical=wall_geometry(problem,corridor,units,result.doors)
+    net_corridor=physical.corridor
+    q['wall_thickness']=problem.profile.wall_thickness
     actual_free=problem.boundary.difference(problem.fixed_union).difference(corridor)
     if actual_free.symmetric_difference(result.allocatable_space).area>1e-6:
         errors.append('allocatable_space_mismatch')
@@ -89,19 +99,30 @@ def validate_partition(problem, result):
     if corridor.intersection(problem.fixed_union).area>1e-6: errors.append('corridor_structure_overlap')
     if corridor.difference(problem.boundary).area>1e-6: errors.append('corridor_outside')
     if result.opening.is_empty or not corridor.buffer(1e-7).covers(result.opening): errors.append('core_opening_disconnected')
+    if not net_corridor.buffer(1e-7).covers(result.opening): errors.append('net_core_opening_disconnected')
     if result.opening.difference(problem.traffic_core.boundary.buffer(1e-7)).length>1e-6: errors.append('opening_not_on_core')
-    centre=corridor.buffer(-problem.profile.corridor_width/2+1e-5,join_style=2)
+    if net_corridor.geom_type!='Polygon' or net_corridor.is_empty:
+        errors.append('net_corridor_disconnected')
+    centre=net_corridor.buffer(-problem.profile.corridor_width/2+1e-5,join_style=2)
     if centre.is_empty or centre.geom_type!='Polygon': errors.append('corridor_width')
-    elif corridor.difference(centre.buffer(problem.profile.corridor_width/2,join_style=2)).area>1e-5:
-        errors.append('corridor_thin_appendage')
+    else:
+        residual=net_corridor.difference(centre.buffer(problem.profile.corridor_width/2,join_style=2))
+        # A half-wall shoulder where a new wall terminates at existing structure
+        # is not a passage. The connected clear-width centre-space and actual
+        # door-front rectangles must still pass independently.
+        residual=residual.difference(problem.fixed_union.buffer(problem.profile.wall_thickness/2+1e-7,join_style=2))
+        if residual.area>1e-5: errors.append('corridor_thin_appendage')
     for uid,poly in units.items():
         if poly.geom_type!='Polygon' or not poly.is_valid or poly.is_empty:
             errors.append(f'{uid}:disconnected'); continue
         if poly.intersection(problem.fixed_union).area>1e-6: errors.append(f'{uid}:structure_overlap')
         if poly.difference(result.allocatable_space).area>1e-6: errors.append(f'{uid}:outside_free_space')
-        length=poly.boundary.intersection(exterior).length
-        required=frontage_requirement(poly.area,q)
-        error=abs(poly.area-result.target_areas[uid])/result.target_areas[uid]
+        net=physical.units[uid]
+        if net.is_empty or net.geom_type!='Polygon':
+            errors.append(f'{uid}:wall_thickness_disconnects_unit'); continue
+        length=net.boundary.intersection(exterior).length
+        required=frontage_requirement(net.area,q)
+        error=abs(net.area-result.target_areas[uid])/result.target_areas[uid]
         count=corners(poly)
         coords=list(poly.simplify(1e-7,preserve_topology=True).exterior.coords)
         short_edges=sum(1 for a,b in zip(coords,coords[1:])
@@ -110,13 +131,13 @@ def validate_partition(problem, result):
         if length+1e-6<required: errors.append(f'{uid}:facade_deficit')
         if error>q['area_tolerance']+1e-6: errors.append(f'{uid}:area')
         if count>q['max_corners']: errors.append(f'{uid}:too_many_corners')
-        eroded=poly.buffer(-q['min_unit_width']/2+1e-5,join_style=2)
+        eroded=net.buffer(-q['min_unit_width']/2+1e-5,join_style=2)
         if eroded.is_empty or eroded.geom_type!='Polygon': errors.append(f'{uid}:narrow_or_disconnected')
-        unusable=poly.difference(eroded.buffer(q['min_unit_width']/2,join_style=2)).area/poly.area
+        unusable=net.difference(eroded.buffer(q['min_unit_width']/2,join_style=2)).area/net.area
         if unusable>q['max_unusable_ratio']+1e-6: errors.append(f'{uid}:thin_appendage')
         # Geometric opportunity only: no sun, glazing or obstruction simulation.
-        frontage=poly.boundary.intersection(exterior)
-        lit=poly.intersection(frontage.buffer(q['daylight_depth'])).area/poly.area
+        frontage=net.boundary.intersection(exterior)
+        lit=net.intersection(frontage.buffer(q['daylight_depth'])).area/net.area
         if lit+1e-6<q['min_daylight_coverage']: errors.append(f'{uid}:daylight_depth_deficit')
         door=doors.get(uid)
         if door:
@@ -124,9 +145,12 @@ def validate_partition(problem, result):
             if abs(line.length-problem.profile.door_width)>1e-6: errors.append(f'{uid}:door_width')
             if line.difference(poly.boundary.buffer(1e-7)).length>1e-6 or line.difference(corridor.boundary.buffer(1e-7)).length>1e-6:
                 errors.append(f'{uid}:door_contact')
-            if not door_clearance(door,poly,corridor,q): errors.append(f'{uid}:door_clearance')
-        metrics[uid]=dict(area=poly.area,target_area=result.target_areas[uid],area_error_ratio=error,
-                          facade_length=length,required_facade_length=required,facade_per_area=length/poly.area,
+            if not door_clearance(door,net,net_corridor,q): errors.append(f'{uid}:door_clearance')
+            passage=line.buffer(problem.profile.wall_thickness/2,cap_style=2)
+            if passage.intersection(problem.fixed_union).area>1e-6: errors.append(f'{uid}:door_structure_overlap')
+        metrics[uid]=dict(area=net.area,territory_area=poly.area,wall_share_area=poly.area-net.area,
+                          target_area=result.target_areas[uid],area_error_ratio=error,
+                          facade_length=length,required_facade_length=required,facade_per_area=length/net.area,
                           corners=count,short_edges=short_edges,daylight_coverage_proxy=lit,unusable_area_ratio=unusable)
     polygons=list(units.values()); merged=unary_union(polygons)
     if sum(p.area for p in polygons)-merged.area>1e-6: errors.append('unit_overlap')
@@ -137,7 +161,10 @@ def validate_partition(problem, result):
             if LineString(a.points).distance(LineString(b.points))+1e-6<problem.profile.min_door_spacing:
                 errors.append('door_spacing')
     # Only shared unit boundaries are checked: external outlines may be irregular.
-    axes=structural_axes(problem); aligned=0.; shared_total=0.
+    axes=structural_axes(problem); center_axes=structural_center_axes(problem)
+    reference_axes=structural_reference_axes(problem)
+    reference_lengths={k:0. for k in reference_axes}
+    aligned=0.; shared_total=0.; center_aligned=0.; reference_supported=0.
     for i,a in enumerate(polygons):
         for b in polygons[i+1:]:
             shared=a.boundary.intersection(b.boundary)
@@ -146,6 +173,14 @@ def validate_partition(problem, result):
                 if line.geom_type!='LineString': continue
                 for p,r in zip(line.coords,list(line.coords)[1:]):
                     seg=LineString([p,r]); shared_total+=seg.length
+                    supported=False
+                    for mode,refs in reference_axes.items():
+                        if any(abs(p[d]-r[d])<1e-7 and any(abs(p[d]-v)<1e-6 for v in refs[d]) for d in (0,1)):
+                            reference_lengths[mode]+=seg.length
+                            supported=True
+                    if supported: reference_supported+=seg.length
+                    if any(abs(p[d]-r[d])<1e-7 and any(abs(p[d]-v)<1e-6 for v in center_axes[d]) for d in (0,1)):
+                        center_aligned+=seg.length
                     ok=any(abs(p[d]-r[d])<1e-7 and any(abs(p[d]-v)<=q['alignment_tolerance'] for v in axes[d]) for d in (0,1))
                     if ok: aligned+=seg.length
                     else:
@@ -157,8 +192,23 @@ def validate_partition(problem, result):
                             for d in (0,1))
                         if not modular: errors.append('partition_edge_off_structure_grid')
     alignment=aligned/shared_total if shared_total else 1.
+    reference_mode=max(reference_lengths,key=reference_lengths.get)
+    reference_ratio=reference_lengths[reference_mode]/shared_total if shared_total else 1.
     if alignment+1e-6<q['min_structure_alignment']: errors.append('structure_alignment_deficit')
+    net_area=sum(p.area for p in physical.units.values())+net_corridor.area
+    accounting_error=abs(net_area+physical.solid.area+physical.thresholds.area-
+                         problem.boundary.difference(problem.fixed_union).area)
+    if accounting_error>1e-6: errors.append('physical_area_accounting')
     return dict(valid=not errors,errors=sorted(set(errors)),units=metrics,
-                unassigned_area=missing,corridor_area=corridor.area,
+                unassigned_area=missing,corridor_area=net_corridor.area,corridor_territory_area=corridor.area,
+                wall_thickness=problem.profile.wall_thickness,wall_reservation_area=physical.reservation.area,
+                solid_wall_area=physical.solid.area,door_threshold_area=physical.thresholds.area,
+                physical_area_accounting_error=accounting_error,
+                net_floor_area=net_area,
+                center_axis_alignment_ratio=center_aligned/shared_total if shared_total else 1.,
+                consistent_reference_alignment_ratio=reference_ratio,
+                dominant_structure_reference=reference_mode if reference_supported else 'none',
+                reference_consistency_ratio=reference_lengths[reference_mode]/reference_supported if reference_supported else 1.,
+                structure_reference_lengths=reference_lengths,
                 structure_alignment_ratio=alignment,
                 daylight_method='per_unit_exposed_facade_and_depth_coverage_proxy')

@@ -15,6 +15,9 @@ from datetime import datetime
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon as PatchPolygon
+from matplotlib.patches import PathPatch
+from matplotlib.path import Path as MplPath
+from shapely.geometry.polygon import orient
 import yaml
 from shapely.geometry import Polygon
 
@@ -24,6 +27,7 @@ from core.envs.structure_geometry import fixed_polygon
 from core.floor_partition import export_unit_configs, run_residential_floor_partition, build_floor_partition_problem
 from core.floor_partition.quality import validate_partition
 from core.floor_partition.training import train_partition_policy
+from core.floor_partition.walls import wall_geometry
 from common.project_paths import STOP_REQUEST_FILE
 
 
@@ -37,10 +41,15 @@ def _polygon_parts(geometry):
 
 def _draw_geometry(axis, geometry, facecolor, edgecolor, linewidth=1.5, alpha=0.7, hatch=None, zorder=1):
     for polygon in _polygon_parts(geometry):
+        polygon=orient(polygon,sign=1.)
+        vertices=[]; codes=[]
+        for ring in [polygon.exterior,*polygon.interiors]:
+            coords=list(ring.coords)
+            vertices.extend(coords)
+            codes.extend([MplPath.MOVETO]+[MplPath.LINETO]*(len(coords)-2)+[MplPath.CLOSEPOLY])
         axis.add_patch(
-            PatchPolygon(
-                list(polygon.exterior.coords),
-                closed=True,
+            PathPatch(
+                MplPath(vertices,codes),
                 facecolor=facecolor,
                 edgecolor=edgecolor,
                 linewidth=linewidth,
@@ -56,12 +65,14 @@ def _render_partition(config: dict, result, output_dir: Path) -> None:
     figure, axis = plt.subplots(figsize=(10, 6.5))
     from core.floor_partition.quality import facade
     from core.floor_partition.structured import lines
-    daylight_facade=facade(build_floor_partition_problem(config))
+    problem=build_floor_partition_problem(config)
+    physical=wall_geometry(problem,result.corridor,result.unit_polygons,result.doors)
+    daylight_facade=facade(problem)
     bx, by = boundary.exterior.xy
     axis.plot(bx, by, color="#0f172a", linewidth=2.4, zorder=5)
 
     colors = ["#90caf9", "#a5d6a7", "#ffcc80", "#ce93d8", "#80cbc4", "#ef9a9a", "#b39ddb", "#f48fb1"]
-    for index, (unit_id, geometry) in enumerate(sorted(result.unit_polygons.items())):
+    for index, (unit_id, geometry) in enumerate(sorted(physical.units.items())):
         color = colors[index % len(colors)]
         _draw_geometry(axis, geometry, color, "#1e3a5f", linewidth=1.8, alpha=0.82, zorder=3)
         point = geometry.representative_point()
@@ -75,7 +86,9 @@ def _render_partition(config: dict, result, output_dir: Path) -> None:
             zorder=6,
         )
 
-    _draw_geometry(axis, result.corridor, "#f8c471", "#b9770e", linewidth=1.8, alpha=0.7, hatch="//", zorder=2)
+    _draw_geometry(axis, physical.corridor, "#009df5", "#0571ad", linewidth=.8, alpha=.85, zorder=2)
+    _draw_geometry(axis, physical.solid, "#374151", "#374151", linewidth=.2, alpha=1., zorder=5)
+    _draw_geometry(axis, physical.thresholds, "white", "none", linewidth=0, alpha=1., zorder=6)
 
     for item in config["ExistingBuilding"].get("fixed_objects", []):
         _draw_geometry(axis, fixed_polygon(item), "#455a64", "#263238", linewidth=1.2, alpha=0.75, zorder=4)
@@ -83,12 +96,12 @@ def _render_partition(config: dict, result, output_dir: Path) -> None:
     for door in result.doors:
         xs = [door.points[0][0], door.points[1][0]]
         ys = [door.points[0][1], door.points[1][1]]
-        axis.plot(xs, ys, color="#c62828", linewidth=3.0, solid_capstyle="round", zorder=7)
+        axis.plot(xs, ys, color="#79ba20", linewidth=3.0, solid_capstyle="butt", zorder=7)
         axis.annotate(door.unit_id, door.center, textcoords="offset points", xytext=(0, 6), ha="center", fontsize=7.5)
 
     for line in lines(daylight_facade.difference(result.corridor)):
         axis.plot(*line.xy,color='#168354',linewidth=3,zorder=6)
-    axis.set_title(f"Residential Floor Partition | opening: {result.opening_side}\nGreen: available external facade; red: unit doors")
+    axis.set_title(f"Net floor areas | walls: {problem.profile.wall_thickness:.2f} m | corridor: {physical.corridor.area:.2f} m2\nBlue: circulation; light green: doors; dark grey: partition walls")
     axis.set_aspect("equal", adjustable="box")
     axis.autoscale_view()
     figure.tight_layout()
@@ -127,8 +140,8 @@ def main():
         torch.set_num_threads(1)
         from core.floor_partition.training import GraphPolicy, policy_rollout
         checkpoint=torch.load(args.checkpoint,map_location='cpu',weights_only=False)
-        if checkpoint.get('schema')!='floor-partition-joint-ppo-v2':
-            raise ValueError('checkpoint 不是联合分户PPO模型')
+        if checkpoint.get('schema')!='floor-partition-joint-ppo-v3':
+            raise ValueError('需要含墙厚、中轴和联合门厅动作的 v3 模型；旧权重需重新训练')
         model=GraphPolicy(); model.load_state_dict(checkpoint['state_dict']); model.eval()
         result,quality,history=policy_rollout(problem,model,steps=args.search_steps or 8)
         (output_dir/'search_history.json').write_text(json.dumps(history,indent=2),encoding='utf-8')
@@ -162,7 +175,8 @@ def main():
         "units": [
             {
                 "unit_id": unit_id,
-                "area": round(float(geometry.area), 6),
+                "area": round(float(quality['units'][unit_id]['area']), 6),
+                "territory_area": round(float(geometry.area), 6),
                 "target_area": round(float(result.target_areas[unit_id]), 6),
             }
             for unit_id, geometry in sorted(result.unit_polygons.items())

@@ -15,3 +15,9 @@ A1模数化与对称化；自动贴核走道、结构直线分户、逐户外墙
 ## 0.2.5 — Joint layout search and graph PPO
 
 联合调整户型、户门和走道；空间图局部搜索、多步PPO、采光进深与形态检查；保留旧单步算法作对照。
+
+## 0.2.6 — Physical partition walls and consistent alignment
+
+可调墙厚、扣墙净面积、完成面门洞；中轴或单侧贴齐的统一评价；集中门厅联合候选和v3模型。
+
+墙厚版本的模型格式为 floor-partition-joint-ppo-v3；旧权重需重新训练。详情见 [墙厚和门厅](partition_walls_and_lobby.md)。

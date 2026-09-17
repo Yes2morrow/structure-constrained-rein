@@ -18,6 +18,8 @@ from .circulation import CirculationLayout
 from .contracts import target_areas_for_area
 from .quality import structural_axes, validate_partition, settings, facade
 from .structured import candidate_partitions, unit_doors, lines
+from .walls import update_net_targets, structural_reference_axes
+from .lobby import lobby_candidates, lobby_reassignments
 
 
 def options(problem):
@@ -46,7 +48,8 @@ def objective(report):
             - .12 * np.mean([u.get('short_edges', 0) for u in units])
             + .4 * min(2., min(u['facade_length'] / u['required_facade_length'] for u in units))
             + .6 * min(u.get('daylight_coverage_proxy', 1.) for u in units)
-            + .3 * report['structure_alignment_ratio'])
+            + .3 * report['structure_alignment_ratio']
+            + .8 * report.get('consistent_reference_alignment_ratio',0.))
 
 
 @dataclass(frozen=True)
@@ -54,6 +57,8 @@ class Action:
     a: int
     b: int
     radius: int
+    kind: str = 'local'
+    variant: int = 0
 
 
 class JointPartitionEnv:
@@ -62,10 +67,12 @@ class JointPartitionEnv:
         self.problem = problem
         self.q = options(problem)
         self.initial = initial if initial is not None else candidate_partitions(problem)[0][0]
+        self.initial=update_net_targets(problem,self.initial)
         self.ids = list(self.initial.unit_polygons)
         self.free = problem.boundary.difference(problem.fixed_union)
+        self.lobbies = lobby_candidates(problem,self.initial.opening,self.initial.opening_side)
         coords = [set(a) for a in structural_axes(problem)]
-        for p in [problem.boundary, self.initial.corridor, *self.initial.unit_polygons.values()]:
+        for p in [problem.boundary, self.initial.corridor, *self.initial.unit_polygons.values(), *self.lobbies]:
             for x, y in p.exterior.coords:
                 coords[0].add(x); coords[1].add(y)
         for d in (0, 1):
@@ -132,10 +139,22 @@ class JointPartitionEnv:
                     break
             if len(anchors) >= slots:
                 break
-        return [Action(a, b, r) for a, b in anchors for r in self.q['radii']
-                if self.q['max_cells']>=2 and self.cells[a].area+self.cells[b].area<=self.q['max_area']][:self.q['max_actions']]
+        local = [Action(a, b, r) for a, b in anchors for r in self.q['radii']
+                 if self.q['max_cells']>=2 and self.cells[a].area+self.cells[b].area<=self.q['max_area']]
+        macro=[]
+        if anchors:
+            for variant,lobby in enumerate(self.lobbies):
+                if lobby.symmetric_difference(self.current.corridor).area<1e-7: continue
+                action=Action(*anchors[0],0,'lobby',variant)
+                indices,window=self.neighbourhood(action)
+                if indices and len(indices)<=self.q['max_cells'] and window.area<=self.q['max_area']:
+                    macro.append(action)
+        return (macro+local)[:self.q['max_actions']]
 
     def neighbourhood(self, action):
+        if action.kind=='lobby':
+            window=self.current.corridor.symmetric_difference(self.lobbies[action.variant])
+            return [i for i,c in enumerate(self.cells) if c.intersection(window).area>1e-8],window
         selected = set()
         front = {action.a, action.b}
         area = 0.
@@ -159,6 +178,7 @@ class JointPartitionEnv:
         q = settings(self.problem)
         door_lines={d.unit_id:LineString(d.points) for d in self.current.doors}
         all_doors=unary_union(list(door_lines.values()))
+        references=structural_reference_axes(self.problem)
         xs = []
         for i, (cell, pt) in enumerate(zip(self.cells, self.points)):
             unit = self.report['units'].get(self.ids[owner[i] - 1]) if owner[i] else None
@@ -174,7 +194,10 @@ class JointPartitionEnv:
                        q['min_unit_width'] / span,
                        cell.distance(door_lines[self.ids[owner[i]-1]] if owner[i] else all_doors)/span,
                        float(cell.distance(all_doors)<1e-7),
-                       cell.distance(self.current.opening)/span])
+                       cell.distance(self.current.opening)/span,
+                       *[min((abs(pt.coords[0][d]-v) for v in axes[d]),default=span)/span
+                         for axes in references.values() for d in (0,1)],
+                       self.problem.profile.wall_thickness/span])
         return np.asarray(xs, dtype=np.float32), self.edges
 
     def _materialize(self, polygons, window):
@@ -187,6 +210,7 @@ class JointPartitionEnv:
         candidate = replace(self.current, corridor=corridor, unit_polygons=units,
                             allocatable_space=self.free.difference(corridor),
                             target_areas=dict(zip(self.ids, target)), area_scale=scale)
+        candidate=update_net_targets(self.problem,candidate)
         # Reject geometry/area/daylight before the more expensive door search.
         pre = validate_partition(self.problem, candidate)
         if any('door' not in err for err in pre['errors']):
@@ -222,6 +246,9 @@ class JointPartitionEnv:
         cut_options.sort(key=lambda x: abs(x[1] - (anchor.x, anchor.y)[x[0]]))
         seen = set()
         def edits():
+            if action.kind=='lobby':
+                yield from lobby_reassignments(self.current,self.lobbies[action.variant],self.q['proposals'])
+                return
             # Sweep a shared edge without reassigning unrelated parts of either
             # region. When shrinking circulation, distribute the released strip
             # among all adjacent units within this same action.
@@ -272,7 +299,8 @@ class JointPartitionEnv:
                 pieces[a]=polygons[a].difference(window).union(local.intersection(mask))
                 pieces[b]=polygons[b].difference(window).union(local.difference(mask))
                 yield pieces
-        for pieces in edits():
+        eligible = len(indices)<=self.q['max_cells'] and window.area<=self.q['max_area']+1e-7
+        for pieces in edits() if eligible else ():
             if stop_file and Path(stop_file).exists(): stopped = True; break
             if proposals >= self.q['proposals']: break
             if time.perf_counter() - start >= self.q['seconds_per_action']: timeout = True; break
@@ -290,11 +318,11 @@ class JointPartitionEnv:
         if objective(self.report) > objective(self.best_report):
             self.best, self.best_report = self.current, self.report
         reward = float(objective(self.report) - previous)
-        info = dict(step=len(self.history)+1, anchor=[action.a, action.b], radius=action.radius,
+        info = dict(step=len(self.history)+1, anchor=[action.a, action.b], radius=action.radius, kind=action.kind,
                     cells=len(indices), area=window.area, labels=labels, proposals=proposals,
                     accepted=accepted, failures=dict(failures), timed_out=timeout, stopped=stopped,
                     changed=reward > 1e-9, reward=reward, score=float(objective(self.report)),
-                    corridor_area=self.current.corridor.area, seconds=time.perf_counter()-start)
+                    corridor_area=self.report['corridor_area'], seconds=time.perf_counter()-start)
         self.history.append(info)
         return self.current, reward, info
 

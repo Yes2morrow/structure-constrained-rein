@@ -16,9 +16,9 @@ from .quality import validate_partition
 class GraphPolicy(nn.Module):
     def __init__(self, hidden=32):
         super().__init__()
-        self.input = nn.Linear(15, hidden)
+        self.input = nn.Linear(26, hidden)
         self.messages = nn.ModuleList([nn.Linear(hidden * 2, hidden) for _ in range(2)])
-        self.actor = nn.Sequential(nn.Linear(hidden * 3 + 1, hidden), nn.Tanh(), nn.Linear(hidden, 1))
+        self.actor = nn.Sequential(nn.Linear(hidden * 3 + 3, hidden), nn.Tanh(), nn.Linear(hidden, 1))
         self.value = nn.Linear(hidden, 1)
         self.stop = nn.Linear(hidden, 1)
 
@@ -35,7 +35,7 @@ class GraphPolicy(nn.Module):
         pooled = h.mean(0)
         if actions:
             a = torch.tensor([v.a for v in actions]); b = torch.tensor([v.b for v in actions])
-            radius = torch.tensor([[v.radius / 8.] for v in actions])
+            radius = torch.tensor([[v.radius / 8., float(v.kind=='lobby'), v.variant/4.] for v in actions])
             z = torch.cat(((h[a]+h[b])/2, (h[a]-h[b]).abs(), pooled.expand(len(actions), -1), radius), -1)
             logits = self.actor(z).flatten()
         else:
@@ -165,7 +165,7 @@ def train_partition_policy(problem, config, output_dir, episodes=None, stop_file
         changed_steps=sum(bool(t.get('changed')) for t in transitions),
         incumbent_source='best_validated_layout_visited_during_multistep_rollouts',
         scope='single-building training; heuristic local repair; no generalisation or optimality claim')
-    torch.save(dict(schema='floor-partition-joint-ppo-v2', state_dict=model.state_dict(),
+    torch.save(dict(schema='floor-partition-joint-ppo-v3', state_dict=model.state_dict(),
                     optimizer=optimizer.state_dict(), config=config, summary=summary), destination/'partition_policy.pt')
     with (destination/'training_metrics.csv').open('w', newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=['episode','steps','reward','loss','best_score'])

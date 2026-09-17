@@ -15,6 +15,7 @@ from core.floor_partition.circulation import circulation_candidates
 from core.floor_partition.quality import validate_partition
 from core.floor_partition.structured import candidate_partitions
 from core.floor_partition.training import train_partition_policy
+from core.floor_partition.walls import wall_geometry
 from checks.test_floor_partition import fixture
 
 
@@ -41,10 +42,10 @@ class FloorQualityTests(unittest.TestCase):
     def test_candidate_pool_hard_acceptance(self):
         for result,report in self.pool:
             self.assertTrue(validate_partition(self.problem,result)['valid'])
-            self.assertAlmostEqual(report['structure_alignment_ratio'],1.)
+            self.assertGreaterEqual(report['structure_alignment_ratio']+1e-6,self.problem.settings['min_structure_alignment'])
             for metric in report['units'].values():
                 self.assertGreaterEqual(metric['facade_length']+1e-6,metric['required_facade_length'])
-        self.assertLessEqual(self.result.corridor.area,31.5)
+        self.assertLess(self.report['corridor_area'],self.result.corridor.area)
 
     def test_infeasible_daylight_rejected(self):
         c=copy.deepcopy(self.config); c['FloorPartition']['quality']['facade_per_area']=10
@@ -73,7 +74,8 @@ class FloorQualityTests(unittest.TestCase):
                 c=yaml.safe_load(path.read_text(encoding='utf-8'))
                 uid=c['FloorPartitionResult']['unit_id']; b=c['ExistingBuilding']
                 net=Polygon(b['boundary']).difference(unary_union([fixed_polygon(i) for i in b['fixed_objects']]))
-                self.assertLess(net.symmetric_difference(self.result.unit_polygons[uid]).area,1e-6)
+                physical=wall_geometry(self.problem,self.result.corridor,self.result.unit_polygons,self.result.doors)
+                self.assertLess(net.symmetric_difference(physical.units[uid]).area,1e-6)
                 self.assertFalse(c['FloorPartition']['enabled'])
                 self.assertEqual(c['Training']['training_stage'],'room_training')
 

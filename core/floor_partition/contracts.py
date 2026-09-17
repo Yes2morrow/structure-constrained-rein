@@ -47,6 +47,7 @@ class ResidentialProfile:
     opening_side: str
     grid_size: float
     export_config_prefix: str
+    wall_thickness: float = .2
 
 
 @dataclass(frozen=True)
@@ -148,10 +149,13 @@ def build_floor_partition_problem(config: dict[str, Any]) -> FloorPartitionProbl
         opening_side=str(residential.get("opening_side", "auto")).strip().lower() or "auto",
         grid_size=grid_size,
         export_config_prefix=str(residential.get("export_config_prefix", "unit")).strip() or "unit",
+        wall_thickness=float(residential.get('wall_thickness', .2)),
     )
     dimensions = (profile.corridor_width, profile.min_door_spacing, profile.door_width, profile.opening_width)
     if any(not math.isfinite(v) or v <= 0 for v in dimensions):
         raise ValueError("走道、门间距、门宽和开口宽度都必须大于 0")
+    if not math.isfinite(profile.wall_thickness) or profile.wall_thickness < 0:
+        raise ValueError('wall_thickness 必须为非负有限数')
     if profile.opening_side not in {"auto", "north", "south", "east", "west"}:
         raise ValueError("opening_side 只能是 auto/north/south/east/west")
 

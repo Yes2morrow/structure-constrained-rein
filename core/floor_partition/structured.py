@@ -9,6 +9,7 @@ from .contracts import target_areas_for_area
 from .circulation import circulation_candidates
 from .doors import Door
 from .growth import PartitionResult
+from .walls import wall_geometry, update_net_targets
 from .quality import (settings, structural_axes, facade, frontage_requirement,
                       corners, door_clearance, validate_partition)
 
@@ -20,6 +21,8 @@ def lines(geometry):
 
 def unit_doors(problem, circulation, polygons, locked=(), allowed_window=None):
     q=settings(problem); width=problem.profile.door_width; choices={}
+    q['wall_thickness']=problem.profile.wall_thickness
+    physical=wall_geometry(problem,circulation.corridor,polygons)
     for uid,poly in polygons.items():
         existing=next((d for d in locked if d.unit_id==uid),None)
         if existing is not None:
@@ -44,7 +47,7 @@ def unit_doors(problem, circulation, polygons, locked=(), allowed_window=None):
                     d=Door(uid,(p,r),label,position)
                     if allowed_window is not None and not allowed_window.buffer(1e-7).covers(LineString(d.points)):
                         continue
-                    if door_clearance(d,poly,circulation.corridor,q): candidates.append(d)
+                    if door_clearance(d,physical.units[uid],physical.corridor,q): candidates.append(d)
         # Keep geographically spread candidates, rather than only one edge.
         unique={tuple(round(v,6) for p in d.points for v in p):d for d in candidates}
         candidates=list(unique.values())
@@ -77,11 +80,11 @@ def score_report(report):
     area=sum(m['area_error_ratio'] for m in units)/len(units)
     excess=sum(max(0,m['corners']-4) for m in units)/len(units)
     ratios=[m['facade_length']/m['required_facade_length'] for m in units]
-    return 10.-8*area-.10*excess+.4*min(min(ratios),2.)-.035*report['corridor_area']
+    return 10.-8*area-.10*excess+.4*min(min(ratios),2.)-.035*report['corridor_area']+.8*report.get('consistent_reference_alignment_ratio',0.)
 
 
 def candidate_partitions(problem):
-    q=settings(problem); axes=structural_axes(problem); exterior=facade(problem)
+    q=settings(problem); axes=structural_axes(problem,include_wall_faces=False); exterior=facade(problem)
     accepted=[]; seen=set(); diagnostics=[]
     for circulation in circulation_candidates(problem):
         free=problem.boundary.difference(problem.fixed_union).difference(circulation.corridor)
@@ -133,11 +136,18 @@ def candidate_partitions(problem):
             result=PartitionResult(circulation.corridor,circulation.opening,circulation.opening_side,
                 free,doors,units,{t.unit_id:targets[i] for i,t in enumerate(problem.targets)},
                 {t.unit_id:t.requested_area for t in problem.targets},scale)
+            result=update_net_targets(problem,result)
             report=validate_partition(problem,result)
             if not report['valid']:
                 diagnostics.extend(report['errors']); continue
             key=tuple(p.wkb for _,p in sorted(units.items()))
             if key not in seen: accepted.append((result,report)); seen.add(key)
+    if accepted:
+        from .lobby import compact_starts
+        # Short bands avoid inheriting gratuitous branches/column bypasses when
+        # testing an alternative compact topology.
+        seeds=sorted(accepted,key=lambda pair:(pair[1]['corridor_area'],-score_report(pair[1])))[:2]
+        accepted.extend(compact_starts(problem,seeds))
     if not accepted:
         raise ValueError('结构分户搜索未找到通过面积、采光外墙、连通性和门前净空验收的方案。'
                          '请调整目标面积/户数/约束或扩大beam_width；这不代表全局无解。 '+ '; '.join(sorted(set(diagnostics))[:4]))
